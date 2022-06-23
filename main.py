@@ -3,8 +3,10 @@ import os
 import random
 import os.path
 from decouple import config
+from googletrans import Translator
 
 client = discord.Client()
+translator = Translator()
 
 TOKEN = config("TOKEN")
 
@@ -13,7 +15,17 @@ capybara_words = ["Capybara", "Capybaras", "Copybara", "Coconut Doggo",
                   "Capibara","Капибара", "Кокосовая Свинка", "Водосвинка",
                   "Кокосовая собачка",  "Водяная Собачка", "Капибары",
                   "Капибару", "Капибарой", "Капибаре", "Водная свинка",
-                  "Водяная свинка", "Капибар"
+                  "Водяная свинка", "Капибар", 'ካፕባራ', 'كابيبا',
+                  'Капібара', 'ক্যাপিবারা','Campybara','Kapibara',
+                  'Kapybara', 'კაპიბარა','Καπετάρι',
+                  'ક capપીબરા','Cayrona', 'קפיברה', 'קפיברה', 'कैपीबारा',
+                  'Calapóir','カピバラ', 'CapiSbara', 'ಬಿಲ್ಲೆ', 'Капибас',
+                  '카피 바라','Капыбара','കാപ്പിബറ', 'Kopa', 'कॅपीबारा',
+                  'Капбайбара', 'क्याप्बेरा', 'କ୍ୟାପିବାଡା |', 'کیپیرارا',
+                  'کپیوبارا','ਕੈਪੀਬੋਰਰਾ','Цапибара', 'Campiybara', 'Capbara',
+                  'ڪيپيبرا','Casybati','Капайарара', 'கேபிபரா', 'కాపిబారా',
+                  'Капібара', 'کیپیبرا', 'Kapabaa', 'Nghapybara', 'קאַפּייבאַראַ',
+                   'Fapu', 'Ikhonsaba'
 ]
 
 
