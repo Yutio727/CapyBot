@@ -28,8 +28,7 @@ capybara_words = [
     'ڪيپيبرا','Casybati','Капайарара', 'கேபிபரா', 'కాపిబారా',
     'Капібара', 'کیپیبرا', 'Kapabaa', 'Nghapybara', 'קאַפּייבאַראַ',
     'Fapu', 'Ikhonsaba'
-]
- #all languages & some forms of rus and eng
+] #all languages & some forms of rus and eng
 
 def get_prefix(bot, message): #getting a prefix from the f's below
     with open(PATH_PREFIX, "r") as f:
@@ -63,13 +62,14 @@ async def on_guild_remove(guild):
 
 
 @bot.command()
+@commands.has_permissions(administrator = True) #only admin can change the prefix
 async def changeprefix(ctx, prefix): #command to change a prefix
     with open(PATH_PREFIX, "r") as f:
         prefixes = json.load(f)
 
-    prefixes[str(ctx.guild.id)] = prefix
+    prefixes[str(ctx.guild.id)] = prefix #changes the prefix on your guild to a prefix you've choose
 
-    with open(PATH_PREFIX, "w") as f:
+    with open(PATH_PREFIX, "w") as f: #writes down the change of the prefix
         json.dump(prefixes, f, indent = 4)
 
     await ctx.send(f"The prefix was changed to {prefix}")
@@ -79,23 +79,22 @@ async def on_message(message):
     msg = message.content
     if any(word.lower() in msg for word in capybara_words) or \
             any(word.upper() in msg for word in capybara_words) or \
-            any(word in msg for word in capybara_words):
-        os.chdir(CAPY_IMAGES)
-        image = random.choice(os.listdir(PATH_IMAGEDATABASE))
-        with open(image, 'rb') as f:
+            any(word in msg for word in capybara_words): #searches for words in lower, upper and Ca... - like words
+        os.chdir(CAPY_IMAGES) #doesn't work without this, idk
+        image = random.choice(os.listdir(PATH_IMAGEDATABASE)) #gets random image of capybara from the directory
+        with open(image, 'rb') as f: # opens it
             picture = discord.File(f)
-            await message.channel.send(file=picture)
-        
-    await bot.process_commands(message)
+            await message.channel.send(file=picture) #sends it as a picture
+         
+    if "727" in msg:
+        await message.channel.send("WYSI") #if sees 727 - sends WYSI
 
-    #if "727" in msg:
-        #await message.channel.send("WYSI")
-
-    #if msg.startswith(bot_kword + "capy Radiance"):
+    #if msg.startswith("capy Radiance"):
         #await message.channel.send(
         #"Radiance, blinding horizon \n The brilliant sunrise \n Thier horizons, where they seize "
         #"this life \n Our children... \n Painters, they are...\n They are, the change... \n Painters..."
         #)
+    await bot.process_commands(message)
 
 
 bot.run(TOKEN)
