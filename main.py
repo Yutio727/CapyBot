@@ -1,64 +1,103 @@
+from http import client
 import discord
+from discord.ext import commands
 import os
 import random
+import json
 import os.path
 from decouple import config
-from googletrans import Translator
 
-client = discord.Client()
-translator = Translator()
 
+CAPY_IMAGES = config("CAPY_IMAGES") 
 TOKEN = config("TOKEN")
-
-
-capybara_words = ["Capybara", "Capybaras", "Copybara", "Coconut Doggo",
-                  "Capibara","Капибара", "Кокосовая Свинка", "Водосвинка",
-                  "Кокосовая собачка",  "Водяная Собачка", "Капибары",
-                  "Капибару", "Капибарой", "Капибаре", "Водная свинка",
-                  "Водяная свинка", "Капибар", 'ካፕባራ', 'كابيبا',
-                  'Капібара', 'ক্যাপিবারা','Campybara','Kapibara',
-                  'Kapybara', 'კაპიბარა','Καπετάρι',
-                  'ક capપીબરા','Cayrona', 'קפיברה', 'קפיברה', 'कैपीबारा',
-                  'Calapóir','カピバラ', 'CapiSbara', 'ಬಿಲ್ಲೆ', 'Капибас',
-                  '카피 바라','Капыбара','കാപ്പിബറ', 'Kopa', 'कॅपीबारा',
-                  'Капбайбара', 'क्याप्बेरा', 'କ୍ୟାପିବାଡା |', 'کیپیرارا',
-                  'کپیوبارا','ਕੈਪੀਬੋਰਰਾ','Цапибара', 'Campiybara', 'Capbara',
-                  'ڪيپيبرا','Casybati','Капайарара', 'கேபிபரா', 'కాపిబారా',
-                  'Капібара', 'کیپیبرا', 'Kapabaa', 'Nghapybara', 'קאַפּייבאַראַ',
-                   'Fapu', 'Ikhonsaba'
+PATH_IMAGEDATABASE = config("PATH_IMAGEDATABASE") 
+PATH_PREFIX = config("PATH_PREFIX")
+capybara_words = [
+    "Capybara", "Capybaras", "Copybara", "Coconut Doggo",
+    "Capibara","Капибара", "Кокосовая Свинка", "Водосвинка",
+    "Кокосовая собачка",  "Водяная Собачка", "Капибары",
+    "Капибару", "Капибарой", "Капибаре", "Водная свинка",
+    "Водяная свинка", "Капибар", 'ካፕባራ', 'كابيبا',
+    'Капібара', 'ক্যাপিবারা','Campybara','Kapibara',
+    'Kapybara', 'კაპიბარა','Καπετάρι','ક capપીબરા',
+    'Cayrona', 'קפיברה', 'קפיברה', 'कैपीबारा',
+    'Calapóir','カピバラ', 'CapiSbara', 'ಬಿಲ್ಲೆ', 'Капибас',
+    '카피 바라','Капыбара','കാപ്പിബറ', 'Kopa', 'कॅपीबारा',
+    'Капбайбара', 'क्याप्बेरा', 'କ୍ୟାପିବାଡା |', 'کیپیرارا',
+    'کپیوبارا','ਕੈਪੀਬੋਰਰਾ','Цапибара', 'Campiybara', 'Capbara',
+    'ڪيپيبرا','Casybati','Капайарара', 'கேபிபரா', 'కాపిబారా',
+    'Капібара', 'کیپیبرا', 'Kapabaa', 'Nghapybara', 'קאַפּייבאַראַ',
+    'Fapu', 'Ikhonsaba'
 ]
+ #all languages & some forms of rus and eng
 
+def get_prefix(bot, message): #getting a prefix from the f's below
+    with open(PATH_PREFIX, "r") as f:
+        prefixes = json.load(f)
 
-@client.event
+    return prefixes[str(message.guild.id)] #command prefix
+
+bot = commands.Bot(command_prefix = get_prefix) #main command
+
+@bot.event
 async def on_ready():
-    print('{0.user} is connected'.format(client))
+    print("Bot is ready") #when the bot is loaded
+
+async def on_guild_join(guild):
+    with open(PATH_PREFIX, "r") as f: #reading the prefixes to load in for the first time
+        prefixes = json.load(f)
+
+    prefixes[str(guild.id)] = "." #standart prefix to a bot
+
+    with open(PATH_PREFIX, "w") as f:
+        json.dump(prefixes, f, indent = 4) #writing a standart prefix
+@bot.event
+async def on_guild_remove(guild):
+    with open(PATH_PREFIX, "r") as f: #deleting the prefix after bot leaves the guild
+        prefixes = json.load(f)
+
+    prefixes.pop(str(guild.id)) #deleting the prefix and id
+
+    with open(PATH_PREFIX, "w") as f:
+        json.dump(prefixes, f, indent = 4) #writing literally nothing
 
 
-@client.event
+@bot.command()
+async def changeprefix(ctx, prefix): #command to change a prefix
+    with open(PATH_PREFIX, "r") as f:
+        prefixes = json.load(f)
+
+    prefixes[str(ctx.guild.id)] = prefix
+
+    with open(PATH_PREFIX, "w") as f:
+        json.dump(prefixes, f, indent = 4)
+
+    await ctx.send(f"The prefix was changed to {prefix}")
+
+@bot.event
 async def on_message(message):
     msg = message.content
-    if message.author == client.user:
-        return
-
-    if "727" in msg:
-        await message.channel.send("WYSI")
-
-    if msg.startswith("!capy Radiance"):
-        await message.channel.send(
-        "Radiance, blinding horizon \n The brilliant sunrise \n Thier horizons, where they seize "
-        "this life \n Our children... \n Painters, they are...\n They are, the change... \n Painters..."
-        )
-
     if any(word.lower() in msg for word in capybara_words) or \
             any(word.upper() in msg for word in capybara_words) or \
             any(word in msg for word in capybara_words):
-        path = config("PATH_BASE")
-        os.chdir(path)
-        image = random.choice(os.listdir(path))
+        os.chdir(CAPY_IMAGES)
+        image = random.choice(os.listdir(PATH_IMAGEDATABASE))
         with open(image, 'rb') as f:
             picture = discord.File(f)
             await message.channel.send(file=picture)
+        
+    await bot.process_commands(message)
+
+    #if "727" in msg:
+        #await message.channel.send("WYSI")
+
+    #if msg.startswith(bot_kword + "capy Radiance"):
+        #await message.channel.send(
+        #"Radiance, blinding horizon \n The brilliant sunrise \n Thier horizons, where they seize "
+        #"this life \n Our children... \n Painters, they are...\n They are, the change... \n Painters..."
+        #)
 
 
+bot.run(TOKEN)
 
-client.run(TOKEN)
+
