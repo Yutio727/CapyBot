@@ -1,18 +1,19 @@
-from http import client
+from zlib import DEFLATED
 import discord
 from discord.ext import commands
 import os
 import random
-import json
 import os.path
 from decouple import config
 import googletrans
+import asyncpg
 
 #getting variables
 CAPY_IMAGES = config("CAPY_IMAGES") 
 TOKEN = config("TOKEN")
 PATH_IMAGEDATABASE = config("PATH_IMAGEDATABASE") 
 PATH_PREFIX = config("PATH_PREFIX")
+CAPY_BASE = config("DATABASE")
 translator = googletrans.Translator()
 
 capybara_words = [
@@ -33,72 +34,47 @@ capybara_words = [
     'Fapu', 'Ikhonsaba', "水豚"
 ] #almost all languages & some forms of rus and eng
 
+DEFAULT_PREFIX = "!"
 
-def get_prefix(bot, message): #getting a prefix from the f's below
-    with open(PATH_PREFIX, "r") as f:
-        prefixes = json.load(f)
+async def get_prefix(bot, message):
+    if not message.guild:
+        return commands.when_mentioned_or(DEFAULT_PREFIX)(bot,message)
+    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", message.guild.id)
+    if len(prefix) == 0:
+        await bot.db.execute("INSERT INTO guilds(guild_id, prefix) VALUES ($1, $2)", message.guild.id, DEFAULT_PREFIX)
+        prefix = DEFAULT_PREFIX
+    else:
+        prefix = prefix[0].get("prefix")
+    return commands.when_mentioned_or(prefix)(bot, message)
 
-    return prefixes[str(message.guild.id)] #command prefix
+
+async def create_db_pool():
+    bot.db = await asyncpg.create_pool(CAPY_BASE) #connecting to database
+    print("Connected to database.")
+
 
 bot = commands.Bot(command_prefix = get_prefix, help_command = None, activity = discord.Activity(type=discord.ActivityType.playing, name="!help"), status=discord.Status.idle)  #identity)
 
 
 @bot.event
 async def on_ready():
-    print("{0.user} is ready to work.".format(bot)) #when the bot is loaded
-
-@bot.event
-async def on_guild_join(guild):
-    with open(PATH_PREFIX, "r") as f: #reading the prefixes to load in for the first time
-        prefixes = json.load(f)
-
-    prefixes[str(guild.id)] = "!" #standart prefix to a bot
-    prefix = prefixes[str(guild.id)]
-
-    with open(PATH_PREFIX, "w") as f:
-        json.dump(prefixes, f, indent = 4) #writing a standart prefix
-    await guild.me.edit(nick = f"CapyBot [{prefix}]") #changes the nickname to Capybot + [prefix]
-        
-@bot.event
-async def on_guild_remove(guild):
-    with open(PATH_PREFIX, "r") as f: #deleting the prefix after bot leaves the guild
-        prefixes = json.load(f)
-
-    prefixes.pop(str(guild.id)) #deleting the prefix and id
-
-    with open(PATH_PREFIX, "w") as f:
-        json.dump(prefixes, f, indent = 4) #writing literally nothing
+    print("{0.user} is fully operational.".format(bot)) #when the bot is loaded
 
 
-@bot.command()
-@commands.has_permissions(administrator = True) #only admin can change the prefix
-async def changeprefix(ctx, prefix): #command to change a prefix
-    with open(PATH_PREFIX, "r") as f:
-        prefixes = json.load(f)
-
-    prefixes[str(ctx.guild.id)] = prefix #changes the prefix on your guild to a prefix you've choose
-
-    with open(PATH_PREFIX, "w") as f: #writes down the change of the prefix
-        json.dump(prefixes, f, indent = 4)
-
-    await ctx.send(f"The prefix was changed to: {prefix}")
-    await ctx.guild.me.edit(nick = f"CapyBot [{prefix}]") #changes the nickname to Capybot + [prefix]
-
-
-
-# @bot.command()
-# async def Radiance(ctx):
-#     await ctx.channel.send("Radiance, blinding horizon \n The brilliant sunrise \n Thier horizons, where they seize "
-#     "this life \n Our children... \n Painters, they are...\n They are, the change... \n Painters..."
-#     )
+@bot.command(aliases=["setpre"])
+@commands.has_permissions(administrator=True)
+async def changeprefix(ctx, new_prefix):
+    await bot.db.execute("UPDATE guilds SET prefix = $1 WHERE guild_id = $2", new_prefix, ctx.guild.id)
+    await ctx.send(f"The prefix was changed to: {new_prefix}")
+    await ctx.guild.me.edit(nick = f"CapyBot [{new_prefix}]") 
 
 
 @bot.command()
 async def translate(ctx, sentence, arg1 = "", arg2 = ""): #this thing translates text to whatever you want (google translate) by any args
     if len(str(sentence)) != 0: 
-        if arg1[:5] == "dest=":
+        if arg1[:2] == "d=":
             dest = arg1[-2:]
-            if arg2[:4] == "src=":
+            if arg2[:2] == "s=":
                 src = arg2[-2:]
                 translation = translator.translate(sentence, dest, src)
                 await ctx.channel.send(f"{translation.text}")
@@ -106,9 +82,9 @@ async def translate(ctx, sentence, arg1 = "", arg2 = ""): #this thing translates
                 translation = translator.translate(sentence, dest)
                 await ctx.channel.send(f"{translation.text}")
 
-        if arg1[:4] == "src=":
+        if arg1[:2] == "s=":
             src = arg1[-2:]
-            if arg2[:5] == "dest=":
+            if arg2[:2] == "d=":
                 dest = arg2[-2:]
                 translation = translator.translate(sentence, dest, src)
                 await ctx.channel.send(f"{translation.text}")
@@ -119,8 +95,8 @@ async def translate(ctx, sentence, arg1 = "", arg2 = ""): #this thing translates
         if len(arg1) == 0 and len(arg2) == 0:
             translation = translator.translate(sentence)
             await ctx.channel.send(f"{translation.text}")
-    else:
-        await ctx.send("You didn't send a word or a text.")
+    else: 
+        await ctx.channel.send("You didn't put any text to translate.")
 
 
 @bot.command()
@@ -128,24 +104,19 @@ async def language(ctx, lang = ""):
     if len(str(lang)) == 2:
         lang_code = googletrans.LANGUAGES[str(lang)]
         await ctx.channel.send(f"{lang}:  {lang_code}")
+
     elif len(str(lang)) > 2:
         lang_code = googletrans.LANGCODES[str(lang)]
         await ctx.channel.send(f"{lang}:  {lang_code}")
 
 
-@bot.command()
-async def repeat(ctx):
-    if ctx.message.reference and (msg := ctx.message.reference.resolved) and isinstance(msg, discord.Message):
-        await ctx.send(msg.content)
-    else:
-        await ctx.send("You need to reply to an existing message.")
 
 @bot.command()
 async def treply(ctx, arg1 = "", arg2 = ""):
     if ctx.message.reference and (msg := ctx.message.reference.resolved) and isinstance(msg, discord.Message):
-        if arg1[:5] == "dest=":
+        if arg1[:2] == "d=":
             dest = arg1[-2:]
-            if arg2[:4] == "src=":
+            if arg2[:2] == "s=":
                 src = arg2[-2:]
                 translation = translator.translate(msg.content, dest, src)
                 await ctx.channel.send(f"{translation.text}")
@@ -153,9 +124,9 @@ async def treply(ctx, arg1 = "", arg2 = ""):
                 translation = translator.translate(msg.content, dest)
                 await ctx.channel.send(f"{translation.text}")
 
-        if arg1[:4] == "src=":
+        if arg1[:2] == "s=":
             src = arg1[-2:]
-            if arg2[:5] == "dest=":
+            if arg2[:2] == "d=":
                 dest = arg2[-2:]
                 translation = translator.translate(msg.content, dest, src)
                 await ctx.channel.send(f"{translation.text}")
@@ -167,21 +138,21 @@ async def treply(ctx, arg1 = "", arg2 = ""):
             translation = translator.translate(msg.content)
             await ctx.channel.send(f"{translation.text}")
     else:
-        await ctx.send("You need to reply to an existing message")
+        await ctx.send("You need to reply to an existing message.")
 
 
 
 @bot.group(invoke_without_command = True)
 async def help(ctx): # new help command
     capycolor = discord.Color.from_rgb(219, 188, 129)
-    with open(PATH_PREFIX, "r") as f:
-        prefixes = json.load(f)
-    prefix = prefixes[str(ctx.guild.id)]
+    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
+    prefix = prefix[0].get("prefix")
 
-    em = discord.Embed(title = "Help", description = f"Use {prefix}help <command> for extended information on a command.", color = capycolor)
+    em = discord.Embed(title = "Help", description = f"Use {prefix}help <command> to get more information on a command.", color = capycolor)
 
     em.add_field(name = "Translation", value = "translate, treply,   language, languages_list")
     em.add_field(name = "Capybara", value = "Capybara")
+    em.add_field(name = "Bot command", value = "changeprefix")
 
     await ctx.send(embed = em)
 
@@ -189,13 +160,12 @@ async def help(ctx): # new help command
 @help.command()
 async def translate(ctx):
     capycolor = discord.Color.from_rgb(219, 188, 129)
-    with open(PATH_PREFIX, "r") as f:
-        prefixes = json.load(f)
-    prefix = prefixes[str(ctx.guild.id)] 
+    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
+    prefix = prefix[0].get("prefix")
 
     em = discord.Embed(title = "translate", description = "Translates a word or a sentence.", color = capycolor)
 
-    em.add_field(name = "Syntax", value = f"{prefix}translate <'sentence'> [src=(sourse language)] [dest=(destination language)]")
+    em.add_field(name = "Syntax", value = f"{prefix}translate <'sentence'> [s=(sourse language)] [d=(destination language)]")
     em.add_field(name = "Additional info", value = f"You can get a list of all languages by calling a {prefix}help languages_list or use a {prefix}language to get a language code.")
 
     await ctx.send(embed = em)
@@ -203,9 +173,8 @@ async def translate(ctx):
 @help.command()
 async def language(ctx):
     capycolor = discord.Color.from_rgb(219, 188, 129)
-    with open(PATH_PREFIX, "r") as f:
-        prefixes = json.load(f)
-    prefix = prefixes[str(ctx.guild.id)] 
+    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
+    prefix = prefix[0].get("prefix")
 
     em = discord.Embed(title = "languages", description = "Gives you a code to language or a language to a code.", color = capycolor)
 
@@ -227,13 +196,12 @@ async def languages_list(ctx):
 @help.command()
 async def treply(ctx):
     capycolor = discord.Color.from_rgb(219, 188, 129)
-    with open(PATH_PREFIX, "r") as f:
-        prefixes = json.load(f)
-    prefix = prefixes[str(ctx.guild.id)] 
+    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
+    prefix = prefix[0].get("prefix")
 
     em = discord.Embed(title = "treply", description = "Translates message you replyed to.", color = capycolor)
 
-    em.add_field(name = "Syntax", value = f"{prefix}treply [src=(sourse language)] [dest=(destination language)]")
+    em.add_field(name = "Syntax", value = f"{prefix}treply [s=(sourse language)] [d=(destination language)]")
     em.add_field(name = "Additional info", value = f"You can get a list of all languages by calling a {prefix}help languages_list or use a {prefix}language to get a language code.")
 
     await ctx.send(embed = em)
@@ -248,12 +216,28 @@ async def capybara(ctx):
 
     await ctx.send(embed = em)
 
+@help.command()
+async def changeprefix(ctx):
+    capycolor = discord.Color.from_rgb(219, 188, 129)
+    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
+    prefix = prefix[0].get("prefix")
+
+    em = discord.Embed(title = "changeprefix", description = "Changes your server prefix.", color = capycolor)
+
+    em.add_field(name = "Syntax" , value = f"{prefix}changeprefix <new_prefix>")
+
+    await ctx.send(embed = em)
+
+
+
+
 
 
 
 @bot.event
 async def on_message(message):
     msg = message.content
+
     if any(word.lower() in msg for word in capybara_words) or \
             any(word.upper() in msg for word in capybara_words) or \
             any(word in msg for word in capybara_words): #searches for words in lower, upper and Ca... - like words
@@ -268,5 +252,5 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-
+bot.loop.run_until_complete(create_db_pool())
 bot.run(TOKEN)
