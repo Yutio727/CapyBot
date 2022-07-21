@@ -39,26 +39,34 @@ capybara_words = [
     'کپیوبارا','ਕੈਪੀਬੋਰਰਾ','Цапибара', 'Campiybara', 'Capbara',
     'ڪيپيبرا','Casybati','Капайарара', 'கேபிபரா', 'కాపిబారా',
     'Капібара', 'کیپیبرا', 'Kapabaa', 'Nghapybara', 'קאַפּייבאַראַ',
-    'Fapu', 'Ikhonsaba', "水豚"
+    'Fapu', 'Ikhonsaba', "水豚", "Capy"
 ] #almost all languages & some forms of rus and eng from googletrans
 
 capycolor = discord.Color.from_rgb(219, 188, 129)
 
 message_on_cooldown = [] 
 lang_list = []
-
 DEFAULT_PREFIX = "!"
+DEFAULT_TOGGLE = "On"
 
 
 async def get_prefix(bot, message): #getting prefix from database
     if not message.guild:
         return commands.when_mentioned_or(DEFAULT_PREFIX)(bot,message)
+
     prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", message.guild.id)
+    toggle = await bot.db.fetch("SELECT toggle FROM capypics WHERE guild_id = $1", message.guild.id)
+
     if len(prefix) == 0:
         await bot.db.execute("INSERT INTO guilds(guild_id, prefix) VALUES ($1, $2)", message.guild.id, DEFAULT_PREFIX)
         prefix = DEFAULT_PREFIX
     else:
         prefix = prefix[0].get("prefix")
+
+    if len(toggle) == 0:
+        await bot.db.execute("INSERT INTO capypics(guild_id, toggle) VALUES ($1, $2)", message.guild.id, DEFAULT_TOGGLE)
+        toggle = DEFAULT_TOGGLE
+    #   print(toggle)
     return commands.when_mentioned_or(prefix)(bot, message)
 
 
@@ -117,7 +125,7 @@ async def on_command_error(ctx, error): #handling errors
 
 @bot.command(aliases=["setpre"])
 @commands.has_permissions(administrator = True)
-@commands.cooldown(1, 60, type=commands.BucketType.user)
+@commands.cooldown(1, 5, type=commands.BucketType.guild)
 async def changeprefix(ctx, new_prefix):#changes the prefix
     if len(new_prefix) > 0 and len(new_prefix) <= 3:
         await bot.db.execute("UPDATE guilds SET prefix = $1 WHERE guild_id = $2", new_prefix, ctx.guild.id)
@@ -127,9 +135,24 @@ async def changeprefix(ctx, new_prefix):#changes the prefix
         await ctx.send("Your prefix is way too long, try shorter one.")
 
 
+@bot.command()
+@commands.has_permissions(administrator = True)
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
+async def capybara(ctx):
+    toggle = await bot.db.fetch("SELECT toggle FROM capypics     WHERE guild_id = $1", ctx.guild.id)
+    toggle = toggle[0].get("toggle")
+    if  toggle == "On":
+        await bot.db.execute("UPDATE capypics SET toggle = $1 WHERE guild_id = $2", "Off", ctx.guild.id)
+        em = discord.Embed(title = "Capybara pics are off.", color = capycolor)
+        await ctx.channel.send(embed = em)
+    if toggle == "Off":
+        await bot.db.execute("UPDATE capypics SET toggle = $1 WHERE guild_id = $2", "On", ctx.guild.id)
+        em = discord.Embed(title = "Capybara pics are on.", color = capycolor)
+        await ctx.channel.send(embed = em)
+
 
 @bot.command()
-@commands.cooldown(1, 10, type=commands.BucketType.user)
+@commands.cooldown(1, 5, type=commands.BucketType.user)
 async def translate(ctx, sentence, arg1 = "", arg2 = ""): #this thing translates text to whatever you want (google translate) by any args
     if len(str(sentence)) > 0: #when sentence is existing
         if arg1[:2] == "d=": #if first argument is destination language
@@ -159,7 +182,7 @@ async def translate(ctx, sentence, arg1 = "", arg2 = ""): #this thing translates
         await ctx.channel.send("You didn't put any text to translate.")
 
 @bot.command()
-@commands.cooldown(1, 10, type=commands.BucketType.user)
+@commands.cooldown(1, 5, type=commands.BucketType.user)
 async def treply(ctx, arg1 = "", arg2 = ""):
     if ctx.message.reference and (msg := ctx.message.reference.resolved) and isinstance(msg, discord.Message): #checks if you had replyed and used the command
         if arg1[:2] == "d=": #if first argument is destination language
@@ -212,6 +235,15 @@ async def clear(ctx, amount=10): #deletes messages
     else:
         await ctx.channel.send("Message deleting limit is 50.")
 
+
+@bot.command()
+@commands.cooldown(1, 30, commands.BucketType.user)
+@commands.has_permissions(administrator = True)
+async def ping(ctx, user:discord.User): #pings the user and immediately deletes the message
+    await ctx.send(f'{user.mention}', delete_after=0)
+    await ctx.message.delete()
+
+
 @bot.command()
 @commands.cooldown(1,5, type=commands.BucketType.user)
 @commands.has_permissions(administrator = True)
@@ -234,6 +266,7 @@ async def ban(ctx,  member:discord.Member = None, reason = None):
     await ctx.guild.ban(member, reason = reason)
     await ctx.channel.send(embed = discord.Embed(title = f"{member} is terminated."))
 
+
 @bot.command()
 @commands.cooldown(1,5, type=commands.BucketType.user)
 @commands.has_permissions(administrator = True)
@@ -254,20 +287,10 @@ async def unban(ctx, member = None):
         await ctx.channel.send(embed = discord.Embed(title = "You didn't select a user or user not found."))
         return 
 
-
-
-
-@bot.command()
-@commands.cooldown(1, 30, commands.BucketType.user)
-@commands.has_permissions(administrator = True)
-async def ping(ctx, user:discord.User): #pings the user and immediately deletes the message
-    await ctx.send(f'{user.mention}', delete_after=0)
-    await ctx.message.delete()
-    
-
+        
 
 @bot.group(invoke_without_command = True)
-@commands.cooldown(1, 5, type=commands.BucketType.user)
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
 async def help(ctx): # new help command
     prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
     prefix = prefix[0].get("prefix")
@@ -282,7 +305,7 @@ async def help(ctx): # new help command
 
 
 @help.command()
-@commands.cooldown(1, 5, type=commands.BucketType.user)
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
 async def translate(ctx):
     prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
     prefix = prefix[0].get("prefix")
@@ -295,7 +318,7 @@ async def translate(ctx):
     await ctx.send(embed = em)
 
 @help.command()
-@commands.cooldown(1, 5, type=commands.BucketType.user)
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
 async def language(ctx):
     prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
     prefix = prefix[0].get("prefix")
@@ -308,7 +331,7 @@ async def language(ctx):
     await ctx.send(embed = em)
 
 @help.command()
-@commands.cooldown(1, 5, type=commands.BucketType.user)
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
 async def languages_list(ctx):
     for l in googletrans.LANGUAGES.values():
         lang_list.append(l)
@@ -317,7 +340,7 @@ async def languages_list(ctx):
     await ctx.send(embed = em)
 
 @help.command()
-@commands.cooldown(1, 5, type=commands.BucketType.user)
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
 async def treply(ctx):
     prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
     prefix = prefix[0].get("prefix")
@@ -331,17 +354,19 @@ async def treply(ctx):
     await ctx.send(embed = em)
 
 @help.command()
-@commands.cooldown(1, 5, type=commands.BucketType.user)
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
 async def capybara(ctx):
+    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
+    prefix = prefix[0].get("prefix")
 
-    em = discord.Embed(title = "capybara", description = "Sends you a random capybara pic.", color = capycolor)
+    em = discord.Embed(title = "capybara", description = "Toogles On and Off on your capybara pics dispenser.", color = capycolor)
 
-    em.add_field(name = "Syntax", value = "Not a command, just type **capybara** in any language (almost any language).")
+    em.add_field(name = "Syntax", value = "f{prefix}capybara")
 
     await ctx.send(embed = em)
 
 @help.command()
-@commands.cooldown(1, 5, type=commands.BucketType.user)
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
 async def changeprefix(ctx):
     prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
     prefix = prefix[0].get("prefix")
@@ -353,7 +378,7 @@ async def changeprefix(ctx):
     await ctx.send(embed = em)
 
 @help.command()
-@commands.cooldown(1, 5, type=commands.BucketType.user)
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
 async def clear(ctx):
     prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
     prefix = prefix[0].get("prefix")
@@ -365,7 +390,7 @@ async def clear(ctx):
     await ctx.send(embed = em)
 
 @help.command()
-@commands.cooldown(1, 5, type=commands.BucketType.user)
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
 async def ping(ctx):
     prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
     prefix = prefix[0].get("prefix")
@@ -377,19 +402,19 @@ async def ping(ctx):
     await ctx.send(embed = em)
 
 @help.command()
-@commands.cooldown(1, 5, type=commands.BucketType.user)
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
 async def ban(ctx):
     prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
     prefix = prefix[0].get("prefix")
 
     em = discord.Embed(title = "ban", description = "Bans a user.", color = capycolor)
 
-    em.add_field(name = "Syntax", value = f"**{prefix}ban '<user (can be without #(discriminator))>'**")
+    em.add_field(name = "Syntax", value = f"**{prefix}ban '<user (can be without #(discriminator))>' '<reason>'**")
 
     await ctx.send(embed = em)
 
 @help.command()
-@commands.cooldown(1, 5, type=commands.BucketType.user)
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
 async def unban(ctx):
     prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
     prefix = prefix[0].get("prefix")
@@ -402,37 +427,29 @@ async def unban(ctx):
 
 @bot.event
 async def on_message(message):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", message.guild.id)
-    prefix = prefix[0].get("prefix")
+    await bot.process_commands(message)
     msg = message.content
 
     if message.author == bot.user:
         return
     
-
+    
     if (any(word.lower() in msg for word in capybara_words) or \
             any(word.upper() in msg for word in capybara_words) or \
-            any(word in msg for word in capybara_words))\
-            and not msg.startswith(prefix): #searches for words in lower, upper and Ca... - like words
-        if not message.author.id in message_on_cooldown:
-
-            os.chdir(CAPY_IMAGES) #changes main directory, doesn't work without it
-            image = random.choice(os.listdir(PATH_IMAGEDATABASE)) #gets random image of capybara from the directory
-
-            with open(image, 'rb') as f: # opens it
-                picture = discord.File(f)
-                await message.channel.send(file=picture) #sends it as a picture
-            message_on_cooldown.append(message.author.id) #add users to cooldown
-            await asyncio.sleep(60) # time in seconds
-            message_on_cooldown.remove(message.author.id) #remove users from cooldown
-        else:
-            await message.delete()
-
-          
-    if "727" in msg:
-        await message.channel.send("WYSI") #if sees 727 - sends WYSI
-
-    await bot.process_commands(message)
+            any(word in msg for word in capybara_words)): #searches for words in lower, upper and Ca... - like words
+            prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", message.guild.id)
+            prefix = prefix[0].get("prefix")
+            toggle = await bot.db.fetch("SELECT toggle FROM capypics WHERE guild_id = $1", message.guild.id)
+            toggle = toggle[0].get("toggle")
+            if not message.guild.id in message_on_cooldown and toggle == "On" and not msg.startswith(prefix):
+                os.chdir(CAPY_IMAGES) #changes main directory, doesn't work without it
+                image = random.choice(os.listdir(PATH_IMAGEDATABASE)) #gets random image of capybara from the directory
+                with open(image, 'rb') as f: # opens it
+                    picture = discord.File(f)
+                    await message.channel.send(file=picture) #sends it as a picture
+                message_on_cooldown.append(message.guild.id) #add users to cooldown
+                await asyncio.sleep(5) # time in seconds
+                message_on_cooldown.remove(message.guild.id) #remove users from cooldown
 
 bot.loop.run_until_complete(create_db_pool())
 bot.run(TOKEN)
