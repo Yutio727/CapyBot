@@ -1,4 +1,3 @@
-from zlib import DEFLATED
 import discord
 import discord.utils
 from discord import Member
@@ -11,6 +10,8 @@ import googletrans
 import asyncpg
 import discord.utils
 import asyncio
+import dislash
+from dislash import InteractionClient, Option, OptionType
 
 #getting variables
 CAPY_IMAGES = config("CAPY_IMAGES") 
@@ -24,9 +25,11 @@ translator = googletrans.Translator()
 intents = discord.Intents.default()
 intents.members = True
 
+
 capybara_words = [
-    "Capybara", "Capybaras", "Copybara", "Coconut Doggo",
-    "Capibara","Капибара", "Кокосовая Свинка", "Водосвинка",
+    "Capybara", "Capybaras", "Copybara", "Capypic", "Capypics" "Coconut Doggo",
+    "Capibara", "Capybro", "Capybr", "Капибара", 
+    "Cpbr", "Кокосовая Свинка", "Водосвинка",
     "Кокосовая собачка",  "Водяная Собачка", "Капибары",
     "Капибару", "Капибарой", "Капибаре", "Водная свинка",
     "Водяная свинка", "Капибар", 'ካፕባራ', 'كابيبا',
@@ -44,6 +47,7 @@ capybara_words = [
 
 capycolor = discord.Color.from_rgb(219, 188, 129)
 
+guilds_list = []
 message_on_cooldown = [] 
 lang_list = []
 DEFAULT_PREFIX = "!"
@@ -80,6 +84,9 @@ bot = commands.Bot(command_prefix = get_prefix, intents=intents, help_command = 
 @bot.event
 async def on_ready(): #when bot is ready
     print("{0.user} is fully operational.".format(bot)) #when the bot is loaded
+    
+inter_client = InteractionClient(bot)
+
 
 @bot.event
 async def on_command_error(ctx, error): #handling errors
@@ -150,6 +157,30 @@ async def capybara(ctx):
         em = discord.Embed(title = "Capybara pics are on.", color = capycolor)
         await ctx.channel.send(embed = em)
 
+@inter_client.command(
+    description="Translates a word or a sentence",
+    options=[
+        Option("sentence", "Your sentence.", OptionType.STRING),
+        Option("source", "The language you want to translate from.", OptionType.STRING),
+        Option("destination", "The language you want to translate to.", OptionType.STRING)
+    ]
+)
+@dislash.cooldown(1,5, type=commands.BucketType.user)
+async def translate(inter, sentence = None, source = None, destination = None): #this thing translates text to whatever you want (google translate) by any args
+    if sentence is not None: #when sentence is existing
+            if destination is not None and source is not None: #if first argument is destination language
+                translation = translator.translate(sentence, destination, source)
+                await inter.respond(f"{translation.text}")
+            if source is not None and destination is None:
+                translation = translator.translate(sentence, source)
+                await inter.respond(f"{translation.text}")
+            if destination is not None and source is None:
+                translation = translator.translate(sentence, destination)
+                await inter.respond(f"{translation.text}")
+    else:
+        await inter.respond("You didn't put any text to translate",)
+
+
 
 @bot.command()
 @commands.cooldown(1, 5, type=commands.BucketType.user)
@@ -181,35 +212,46 @@ async def translate(ctx, sentence, arg1 = "", arg2 = ""): #this thing translates
     else: 
         await ctx.channel.send("You didn't put any text to translate.")
 
+
 @bot.command()
 @commands.cooldown(1, 5, type=commands.BucketType.user)
-async def treply(ctx, arg1 = "", arg2 = ""):
+async def treply(ctx, destination = None, source = None):
     if ctx.message.reference and (msg := ctx.message.reference.resolved) and isinstance(msg, discord.Message): #checks if you had replyed and used the command
-        if arg1[:2] == "d=": #if first argument is destination language
-            dest = arg1[-2:]
-            if arg2[:2] == "s=": #if second argument is source language
-                src = arg2[-2:]
-                translation = translator.translate(msg.content, dest, src)
+        if destination is not None and len(destination) == 2:
+            if source is not None and len(source) == 2:
+                translation = translator.translate(msg.content, destination, source)
                 await ctx.channel.send(f"{translation.text}")
+            if destination is not None and len(destination) > 2:
+                await ctx.send("Make sure you put in language code in right format.")
             else:
-                translation = translator.translate(msg.content, dest)
+                translation = translator.translate(msg.content, destination)
                 await ctx.channel.send(f"{translation.text}")
+        if destination is not None and len(destination) > 2:
+            await ctx.send("Make sure you put in language code in right format.")
 
-        if arg1[:2] == "s=": #if first argument is source language
-            src = arg1[-2:]
-            if arg2[:2] == "d=": #if first argument is destination language
-                dest = arg2[-2:]
-                translation = translator.translate(msg.content, dest, src)
-                await ctx.channel.send(f"{translation.text}")
-            else:
-                translation = translator.translate(msg.content, src)
-                await ctx.channel.send(f"{translation.text}")
-
-        if len(arg1) == 0 and len(arg2) == 0: #if no arguments put
-            translation = translator.translate(msg.content)
-            await ctx.channel.send(f"{translation.text}")
     else:
         await ctx.send("You need to reply to an existing message.")
+
+    
+@inter_client.slash_command(
+    description="Translates a word or a sentence",
+    options=[
+        Option("language", "Language you want to see.", OptionType.STRING),
+    ]
+)
+@dislash.cooldown(1,5, type=commands.BucketType.user)
+async def language(inter, language = None):
+    if language is not None:
+        if len(str(language)) == 2:
+            lang_code = googletrans.LANGUAGES[str(language)]
+            await inter.respond(f"{language}:  {lang_code}")
+        if len(str(language)) > 2:
+            lang_code = googletrans.LANGCODES[str(language)]
+            await inter.respond(f"{language}:  {lang_code}")
+    if language is None:
+        await inter.respond("You need to enter the language.")
+    else:
+        await inter.respond("Your language isn't on the list.")
 
 
 @bot.command()
@@ -234,6 +276,20 @@ async def clear(ctx, amount=10): #deletes messages
         await ctx.channel.purge(limit=amount)
     else:
         await ctx.channel.send("Message deleting limit is 50.")
+
+
+
+@inter_client.slash_command(
+    description="Pings a user and deletes a message.",
+    options=[
+        Option("user", "User your want to ping.", OptionType.USER),
+    ]
+)
+@dislash.cooldown(1, 30, commands.BucketType.user)
+@dislash.has_permissions(administrator = True)
+async def ping(inter, user:discord.User): #pings the user and immediately deletes the message
+    await inter.send(f'{user.mention}', delete_after=0)
+
 
 
 @bot.command()
@@ -347,7 +403,7 @@ async def treply(ctx):
 
     em = discord.Embed(title = "treply", description = "Translates message you replyed to.", color = capycolor)
 
-    em.add_field(name = "Syntax", value = f"**{prefix}treply [s='(sourse language)'] [d='(destination language)']**")
+    em.add_field(name = "Syntax", value = f"**{prefix}treply [d='(destination language)'] [s='(sourse language)']**")
     em.add_field(name = "Default languages", value = "The defaults are:\n • Auto source language \n • English as a destination language")
     em.add_field(name = "Additional info", value = f"You can get a list of all languages by calling a **{prefix}help languages_list** or use a **{prefix}language** to get a language code.")
 
@@ -447,9 +503,18 @@ async def on_message(message):
                 with open(image, 'rb') as f: # opens it
                     picture = discord.File(f)
                     await message.channel.send(file=picture) #sends it as a picture
-                message_on_cooldown.append(message.guild.id) #add users to cooldown
+                message_on_cooldown.append(message.guild.id) #add guild to cooldown
                 await asyncio.sleep(5) # time in seconds
-                message_on_cooldown.remove(message.guild.id) #remove users from cooldown
+                message_on_cooldown.remove(message.guild.id) #remove guild from cooldown
+            if message.guild.id in message_on_cooldown:
+                em = discord.Embed(title = "Your server is on cooldown.", color = capycolor)
+                await message.channel.send(embed =  em, delete_after = 3)
+            if toggle == "Off" and not message.guild.id in message_on_cooldown:
+                em = discord.Embed(title = "Your capypics are off.", color = capycolor)
+                await message.channel.send(embed = em, delete_after = 3)
+                message_on_cooldown.append(message.guild.id) #add guild to cooldown
+                await asyncio.sleep(30) # time in seconds
+                message_on_cooldown.remove(message.guild.id) #remove guild from cooldown
 
 bot.loop.run_until_complete(create_db_pool())
 bot.run(TOKEN)
