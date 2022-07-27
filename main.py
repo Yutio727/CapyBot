@@ -9,6 +9,7 @@ from decouple import config
 import googletrans
 import asyncpg
 import asyncio
+import functools
 import dislash
 from dislash import InteractionClient, Option, OptionType, ContextMenuInteraction, application_commands
 
@@ -59,7 +60,7 @@ async def get_prefix(bot, message): #getting prefix from database
 
     prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", message.guild.id)
     toggle = await bot.db.fetch("SELECT toggle FROM capypics WHERE guild_id = $1", message.guild.id)
-
+    
     if len(prefix) == 0:
         await bot.db.execute("INSERT INTO guilds(guild_id, prefix) VALUES ($1, $2)", message.guild.id, DEFAULT_PREFIX)
         prefix = DEFAULT_PREFIX
@@ -69,6 +70,8 @@ async def get_prefix(bot, message): #getting prefix from database
     if len(toggle) == 0:
         await bot.db.execute("INSERT INTO capypics(guild_id, toggle) VALUES ($1, $2)", message.guild.id, DEFAULT_TOGGLE)
         toggle = DEFAULT_TOGGLE
+    else:
+        toggle = toggle[0].get("toggle")
     #   print(toggle)
     return commands.when_mentioned_or(prefix)(bot, message)
 
@@ -81,14 +84,13 @@ async def create_db_pool(): #connecting to database
 #bot command
 bot = commands.Bot(command_prefix = get_prefix, intents=intents, help_command = None, activity = discord.Activity(type=discord.ActivityType.playing, name="!help"), status=discord.Status.idle)
 
-inter_client = InteractionClient(bot, test_guilds = [815928209786011678,990336510895222795,999737844748791878] )
+inter_client = InteractionClient(bot)
 
 
 @bot.event
 async def on_ready(): #when bot is ready
-    for guild in bot.guilds:
-        guilds_list.append(guild.id)
     print("{0.user} is fully operational.".format(bot)) #when the bot is loaded
+    print("Please wait atleast 20 seconds before using slash commands.")
 
 
 
@@ -262,12 +264,10 @@ async def ping(ctx, user:discord.User): #pings the user and immediately deletes 
 @bot.command()
 @commands.cooldown(1,5, type=commands.BucketType.user)
 @commands.has_permissions(administrator = True)
-async def ban(ctx,  member:discord.Member = None, reason = None):
+async def ban(ctx,  member:discord.Member = None, reason = "one good reason"):
     if member == None:
         await ctx.channel.send(embed = discord.Embed(title = "You didn't select a user or user not found.", color = capycolor))
         return
-    if reason == None:
-        reason == "One good reason."
     if member == ctx.message.author:
         await ctx.channel.send(embed = discord.Embed(title = "You can't ban yourself.", color = capycolor))
         return
@@ -275,11 +275,26 @@ async def ban(ctx,  member:discord.Member = None, reason = None):
         await ctx.channel.send(embed = discord.Embed(title = "You can't ban this bot using this bots command, lol.", color = capycolor))
         return
 
-    message = f"You have been banned from {ctx.guild.name} for {reason}"
-    await member.send(message)
-
     await ctx.guild.ban(member, reason = reason)
-    await ctx.channel.send(embed = discord.Embed(title = f"{member} is terminated."))
+    await member.send(embed = discord.Embed(title = f"You have been banned from {ctx.guild.name} for {reason}", color = capycolor))
+
+    await ctx.channel.send(embed = discord.Embed(title = f"{member} is terminated."), color = capycolor)
+async def unban(inter: ContextMenuInteraction, member = None):
+    if member != None:
+        banned_users = await inter.guild.bans()
+        member_name, member_discriminator = member.split("#")
+        for ban_entry in banned_users:
+            user = ban_entry.user
+            if (user.name, user.discriminator) == (member_name, member_discriminator):
+                await inter.guild.unban(user)
+                await inter.respond(embed = discord.Embed(title = f"Unbanned {member}", color = capycolor))
+                return
+            else:
+                await inter.respond(embed = discord.Embed(title = f"{member} isn't banned.", color = capycolor))
+                return
+    if member == None:
+        await inter.respond(embed = discord.Embed(title = "You didn't select a user.", color = capycolor))
+        return 
 
 
 @bot.command()
@@ -293,14 +308,15 @@ async def unban(ctx, member = None):
             user = ban_entry.user
             if (user.name, user.discriminator) == (member_name, member_discriminator):
                 await ctx.guild.unban(user)
-                await ctx.send(embed = discord.Embed(title = f"Unbanned {member}"))
+                await ctx.send(embed = discord.Embed(title = f"Unbanned {member}", color = capycolor))
                 return
             else:
-                await ctx.send(embed = discord.Embed(title = f"{member} isn't banned."))
+                await ctx.send(embed = discord.Embed(title = f"{member} isn't banned.", color = capycolor))
                 return
     if member == None:
-        await ctx.channel.send(embed = discord.Embed(title = "You didn't select a user or user not found."))
+        await ctx.channel.send(embed = discord.Embed(title = "You didn't select a user.", color = capycolor))
         return 
+
 
 
 @dislash.cooldown(1,5, type=commands.BucketType.user)
@@ -368,14 +384,14 @@ async def ping(inter, user:discord.User): #pings the user and immediately delete
     await inter.send(f'{user.mention}', delete_after=0)
 
 
+@dislash.cooldown(1, 5, commands.BucketType.user)
+@dislash.has_permissions(administrator = True)
 @inter_client.slash_command(
     description="Changes the prefix on your server.",
     options=[
         Option("new_prefix", "Prefix you want to use on your server.", OptionType.STRING),
     ]
 )
-@dislash.cooldown(1, 5, commands.BucketType.user)
-@dislash.has_permissions(administrator = True)
 async def prefix(ctx, new_prefix):#changes the prefix
     if len(new_prefix) > 0 and len(new_prefix) <= 3:
         await bot.db.execute("UPDATE guilds SET prefix = $1 WHERE guild_id = $2", new_prefix, ctx.guild.id)
@@ -387,11 +403,11 @@ async def prefix(ctx, new_prefix):#changes the prefix
         await ctx.send(embed = em)
 
 
+@dislash.cooldown(1, 30, commands.BucketType.user)
+@dislash.has_permissions(administrator = True)
 @inter_client.slash_command(
     description="Toogles the capybara pics sending."
 )
-@dislash.cooldown(1, 30, commands.BucketType.user)
-@dislash.has_permissions(administrator = True)
 async def capybara(ctx):
     toggle = await bot.db.fetch("SELECT toggle FROM capypics     WHERE guild_id = $1", ctx.guild.id)
     toggle = toggle[0].get("toggle")
@@ -405,6 +421,78 @@ async def capybara(ctx):
         await ctx.respond(embed = em)
 
 
+@dislash.cooldown(1, 5, commands.BucketType.user)
+@dislash.has_permissions(administrator = True)
+@inter_client.slash_command(
+    description="Deletes messages by amount. (10 by default)",
+    options=[
+        Option("amount", "The amount of messages you want to delete.", OptionType.INTEGER),
+    ]
+)
+async def clear(ctx, amount = 10): #deletes messages
+    if amount == 10:
+        await ctx.channel.purge(limit=10)
+        em = discord.Embed(title = "10 messages are deleted.", color = capycolor)
+        await ctx.send(embed = em)
+    elif (amount >= 1) and (amount <= 50):
+        await ctx.channel.purge(limit=amount)
+        em = discord.Embed(title = f"{amount} messages are deleted.", color = capycolor)
+        await ctx.send(embed = em)
+    elif amount > 50:
+        em = discord.Embed(title = "Message deleting limit is 50.", color = capycolor)
+        await ctx.send(embed = em)
+
+
+@dislash.cooldown(1, 5, commands.BucketType.user)
+@dislash.has_permissions(ban_members=True)
+@inter_client.slash_command(
+    description="Bans a user",
+    options=[
+        Option("member", "User you want to ban.", OptionType.USER),
+        Option("reason", "Ban reason.", OptionType.STRING)
+    ]
+)
+async def ban(inter: ContextMenuInteraction,  member:discord.Member = None, reason = "one good reason."):
+    if member == None:
+        await inter.respond(embed = discord.Embed(title = "You didn't select a user or user not found.", color = capycolor))
+        return
+    if member == inter.author:
+        await inter.respond(embed = discord.Embed(title = "You can't ban yourself.", color = capycolor))
+        return
+    if member == bot.user:  
+        await inter.respond(embed = discord.Embed(title = "You can't ban this bot using this bots command, lol.", color = capycolor))
+        return
+
+    await inter.guild.ban(member, reason = reason)
+    await member.send(embed = discord.Embed(title = f"You have been banned from {inter.guild.name} for {reason}", color = capycolor))
+
+    await inter.respond(embed = discord.Embed(title = f"{member} is terminated.", color = capycolor))
+
+
+@dislash.cooldown(1, 5, commands.BucketType.user)
+@dislash.has_permissions(ban_members=True)
+@inter_client.slash_command(
+    description="Unbans a user",
+    options=[
+        Option("member", "User you want to unban.(with #discriminator)", OptionType.STRING),
+    ]
+)
+async def unban(inter: ContextMenuInteraction, member = None):
+    if member != None:
+        banned_users = await inter.guild.bans()
+        member_name, member_discriminator = member.split("#")
+        for ban_entry in banned_users:
+            user = ban_entry.user
+            if (user.name, user.discriminator) == (member_name, member_discriminator):
+                await inter.guild.unban(user)
+                await inter.respond(embed = discord.Embed(title = f"Unbanned {member}", color = capycolor))
+                return
+            elif (user.name, user.discriminator) != (member_name, member_discriminator):
+                await inter.respond(embed = discord.Embed(title = f"{member} isn't banned.", color = capycolor))
+                return
+    if member == None:
+        await inter.respond(embed = discord.Embed(title = "You didn't select a user.", color = capycolor))
+        return 
 
 @bot.group(invoke_without_command = True)
 @commands.cooldown(1, 5, type=commands.BucketType.channel)
