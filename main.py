@@ -9,9 +9,8 @@ from decouple import config
 import googletrans
 import asyncpg
 import asyncio
-import functools
 import dislash
-from dislash import InteractionClient, Option, OptionType, ContextMenuInteraction, application_commands
+from dislash import InteractionClient, Option, OptionType, ContextMenuInteraction, application_commands, OptionChoice, SlashInteraction
 
 #getting variables
 CAPY_IMAGES = config("CAPY_IMAGES") 
@@ -47,7 +46,6 @@ capybara_words = [
 
 capycolor = discord.Color.from_rgb(219, 188, 129)
 
-guilds_list = []
 message_on_cooldown = [] 
 lang_list = []
 DEFAULT_PREFIX = "!"
@@ -84,7 +82,7 @@ async def create_db_pool(): #connecting to database
 #bot command
 bot = commands.Bot(command_prefix = get_prefix, intents=intents, help_command = None, activity = discord.Activity(type=discord.ActivityType.playing, name="!help"), status=discord.Status.idle)
 
-inter_client = InteractionClient(bot)
+inter_client = InteractionClient(bot, test_guilds = [815928209786011678]) #delete test_guilds to get it to production
 
 
 @bot.event
@@ -494,6 +492,131 @@ async def unban(inter: ContextMenuInteraction, member = None):
         await inter.respond(embed = discord.Embed(title = "You didn't select a user.", color = capycolor))
         return 
 
+@inter_client.slash_command(
+    description="Has subcommands",
+    options=[
+        Option(
+            "command",
+            description="Choose command to get information about.",
+            type=OptionType.STRING,
+            choices=[
+                OptionChoice("translate", "translate"),
+                OptionChoice("language", "language"),
+                OptionChoice("languages_list", "languages_list"),
+                OptionChoice("treply", "treply"),
+                OptionChoice("capybara", "capybara"),
+                OptionChoice("prefix", "prefix"),
+                OptionChoice("clear", "clear"),
+                OptionChoice("ping", "ping"),
+                OptionChoice("ban", "ban"),
+                OptionChoice("unban", "unban"),
+            ],
+        )
+    ]
+)
+async def help(inter: SlashInteraction, command: str = None):
+    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", inter.guild.id)
+    prefix = prefix[0].get("prefix")
+    if command == None:
+        em = discord.Embed(title = "Help", description = f"Use **{prefix}help <command>** to get more information on a command. ", color = capycolor)
+
+        em.add_field(name = "Translation", value = "**translate, treply, language, languages_list**")
+        em.add_field(name = "Capybara", value = "**capybara**")
+        em.add_field(name = "Bot commands", value = "**prefix, clear, ping, ban, unban**")
+        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+
+        await inter.respond(embed = em)
+
+    elif command == "translate":
+        em = discord.Embed(title = "translate", description = "Translates a word or a sentence.", color = capycolor)
+
+        em.add_field(name = "Syntax", value = f"**{prefix}translate <'sentence'> ['(sourse language)'] ['(destination language)']**")
+        em.add_field(name = "Additional info", value = f"You can get a list of all languages by calling a **{prefix}help languages_list** or use a **{prefix}language** to get a language code.")
+        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+
+        await inter.respond(embed = em)
+
+    elif command == "language":
+        em = discord.Embed(title = "languages", description = "Gives you a code to language or a language to a code.", color = capycolor)
+
+        em.add_field(name = "Syntax", value = f"**{prefix}languages <('english' for code) or] ('en' for language)>**")
+        em.add_field(name = "Additional info", value = f"You can get a list of all languages by calling a **{prefix}help languages_list**.")
+        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+
+        await inter.respond(embed = em)
+
+    elif command == "languages_list":
+        for l in googletrans.LANGUAGES.values():
+            lang_list.append(l)
+
+        em = discord.Embed(title = "languages_list", description = "\n".join(lang_list), color = capycolor)
+
+        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+
+        await inter.respond(embed = em)
+    
+    elif command == "treply":
+        em = discord.Embed(title = "treply", description = "Translates message you replyed to.", color = capycolor)
+
+        em.add_field(name = "Syntax", value = f"**{prefix}treply [d='(destination language)'] [s='(sourse language)']**")
+        em.add_field(name = "Default languages", value = "The defaults are:\n • Auto source language \n • English as a destination language")
+        em.add_field(name = "Additional info", value = f"You can get a list of all languages by calling a **{prefix}help languages_list** or use a **{prefix}language** to get a language code.")
+        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+
+        await inter.respond(embed = em)
+
+    elif command == "capybara":
+        em = discord.Embed(title = "capybara", description = "Toogles On and Off on your capybara pics dispenser.", color = capycolor)
+
+        em.add_field(name = "Syntax", value = f"{prefix}capybara")
+        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+
+        await inter.respond(embed = em)
+    
+    elif command == "prefix":
+        em = discord.Embed(title = "prefix", description = "Changes your server prefix.", color = capycolor)
+            
+        em.add_field(name = "Syntax" , value = f"**{prefix}prefix '<new_prefix>'**")
+        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+            
+        await inter.respond(embed = em)
+
+    elif command == "clear":
+        em = discord.Embed(title = "clear", description = "Deletes messages. Standart amount is **10**, but you can set up to **50**.", color = capycolor)
+            
+        em.add_field(name = "Syntax", value = f"**{prefix}clear [amount]**")
+        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+            
+        await inter.respond(embed = em)
+    
+    elif command == "ping":
+        em = discord.Embed(title = "ping", description = "Pings a user and deletes the messages after, making it a ghost ping.", color = capycolor)
+        
+        em.add_field(name = "Syntax", value = f"**{prefix}ping '<user (without #(discriminator))>'**")
+        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+        
+        await inter.respond(embed = em)
+
+    elif command == "ban":
+        em = discord.Embed(title = "ban", description = "Bans a user.", color = capycolor)
+        
+        em.add_field(name = "Syntax", value = f"**{prefix}ban '<user (can be without #(discriminator))>' '<reason>'**")
+        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+        
+        await inter.respond(embed = em)
+    
+    elif command == "unban":
+        em = discord.Embed(title = "unban", description = "Unbans a user.", color = capycolor)
+
+        em.add_field(name = "Syntax", value = f"**{prefix}unban '<user (with #(discriminator))>'**")
+        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+
+        await inter.respond(embed = em)
+
+
+
+
+
 @bot.group(invoke_without_command = True)
 @commands.cooldown(1, 5, type=commands.BucketType.channel)
 async def help(ctx): # new help command
@@ -505,6 +628,7 @@ async def help(ctx): # new help command
     em.add_field(name = "Translation", value = "**translate, treply, language, languages_list**")
     em.add_field(name = "Capybara", value = "**capybara**")
     em.add_field(name = "Bot commands", value = "**prefix, clear, ping, ban, unban**")
+    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
 
     await ctx.send(embed = em)
 
@@ -519,6 +643,7 @@ async def translate(ctx):
 
     em.add_field(name = "Syntax", value = f"**{prefix}translate <'sentence'> [s='(sourse language)'] [d='(destination language)']**")
     em.add_field(name = "Additional info", value = f"You can get a list of all languages by calling a **{prefix}help languages_list** or use a **{prefix}language** to get a language code.")
+    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
 
     await ctx.send(embed = em)
 
@@ -532,6 +657,7 @@ async def language(ctx):
 
     em.add_field(name = "Syntax", value = f"**{prefix}languages <('english' for code) or] ('en' for language)>**")
     em.add_field(name = "Additional info", value = f"You can get a list of all languages by calling a **{prefix}help languages_list**.")
+    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
 
     await ctx.send(embed = em)
 
@@ -541,6 +667,8 @@ async def languages_list(ctx):
     for l in googletrans.LANGUAGES.values():
         lang_list.append(l)
     em = discord.Embed(title = "languages_list", description = "\n".join(lang_list), color = capycolor)
+
+    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
 
     await ctx.send(embed = em)
 
@@ -555,6 +683,7 @@ async def treply(ctx):
     em.add_field(name = "Syntax", value = f"**{prefix}treply [d='(destination language)'] [s='(sourse language)']**")
     em.add_field(name = "Default languages", value = "The defaults are:\n • Auto source language \n • English as a destination language")
     em.add_field(name = "Additional info", value = f"You can get a list of all languages by calling a **{prefix}help languages_list** or use a **{prefix}language** to get a language code.")
+    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
 
     await ctx.send(embed = em)
 
@@ -566,7 +695,8 @@ async def capybara(ctx):
 
     em = discord.Embed(title = "capybara", description = "Toogles On and Off on your capybara pics dispenser.", color = capycolor)
 
-    em.add_field(name = "Syntax", value = "f{prefix}capybara")
+    em.add_field(name = "Syntax", value = f"{prefix}capybara")
+    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
 
     await ctx.send(embed = em)
 
@@ -579,6 +709,7 @@ async def prefix(ctx):
     em = discord.Embed(title = "prefix", description = "Changes your server prefix.", color = capycolor)
 
     em.add_field(name = "Syntax" , value = f"**{prefix}prefix '<new_prefix>'**")
+    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
 
     await ctx.send(embed = em)
 
@@ -591,6 +722,7 @@ async def clear(ctx):
     em = discord.Embed(title = "clear", description = "Deletes messages. Standart amount is **10**, but you can set up to **50**.", color = capycolor)
 
     em.add_field(name = "Syntax", value = f"**{prefix}clear [amount]**")
+    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
 
     await ctx.send(embed = em)
 
@@ -603,6 +735,7 @@ async def ping(ctx):
     em = discord.Embed(title = "ping", description = "Pings a user and deletes the messages after, making it a ghost ping.", color = capycolor)
 
     em.add_field(name = "Syntax", value = f"**{prefix}ping '<user (without #(discriminator))>'**")
+    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
 
     await ctx.send(embed = em)
 
@@ -615,6 +748,7 @@ async def ban(ctx):
     em = discord.Embed(title = "ban", description = "Bans a user.", color = capycolor)
 
     em.add_field(name = "Syntax", value = f"**{prefix}ban '<user (can be without #(discriminator))>' '<reason>'**")
+    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
 
     await ctx.send(embed = em)
 
@@ -627,6 +761,7 @@ async def unban(ctx):
     em = discord.Embed(title = "unban", description = "Unbans a user.", color = capycolor)
 
     em.add_field(name = "Syntax", value = f"**{prefix}unban '<user (with #(discriminator))>'**")
+    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
 
     await ctx.send(embed = em)
 
