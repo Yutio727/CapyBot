@@ -64,12 +64,7 @@ class TimeConverter(commands.Converter):
         matches = re.findall(time_regex, args)
         time = 0
         for v, k in matches:
-            try:
                 time += time_dict[k]*float(v)
-            except KeyError:
-                raise commands.BadArgument("{} is an invalid time-key! h/m/s/d are valid!".format(k))
-            except ValueError:
-                raise commands.BadArgument("{} is not a number!".format(v))
         return time
 
 async def get_prefix(bot, message): #getting prefix from database
@@ -351,14 +346,15 @@ async def unban(ctx, member = None):
 async def mute(ctx, member: discord.Member = None, reason: str = None, time:TimeConverter = None):
     perms = discord.Permissions(speak = False, send_messages = False, read_message_history = False, read_messages = False)
     muted_role = discord.utils.get(ctx.guild.roles, name  = "Muted")
+    print(type(time))
 
     if not muted_role:
         muted_role = await ctx.guild.create_role(name = "Muted")
     
     await muted_role.edit(permissions = perms)
 
-    if muted_role in member.roles:
-        await ctx.send(embed = discord.Embed(title = f"{member} is already muted.", color = capycolor))
+    if member is None:
+        await ctx.send(embed = discord.Embed(title = f"You need to enter the username as argument.", color = capycolor))
         
     elif  member is not None:
 
@@ -384,12 +380,33 @@ async def mute(ctx, member: discord.Member = None, reason: str = None, time:Time
                 await ctx.send(embed = discord.Embed(title = f"Muted {member} for **{reason}** for **{time}**s.", color = capycolor))
                 await member.send(embed = discord.Embed(title = f"You were muted for **{reason}** for **{time}**s.", color = capycolor))
 
+                await asyncio.sleep(time)
+                await member.remove_roles(muted_role)
+
             if time is None:
                 await ctx.send(embed = discord.Embed(title = f"Muted {member} for **{reason}**.", color = capycolor))
                 await member.send(embed = discord.Embed(title = f"You were muted for **{reason}**,", color = capycolor))
 
-    elif member is None:
-        await ctx.send(embed = discord.Embed(title = f"Muted {member} for **{reason}**.", color = capycolor))
+    elif muted_role in member.roles:
+        await ctx.send(embed = discord.Embed(title = f"{member} is already muted.", color = capycolor))
+
+
+@bot.command()
+@commands.cooldown(1,5, type=commands.BucketType.user)
+@commands.has_permissions(manage_roles = True, ban_members = True, manage_permissions = True)
+@commands.bot_has_permissions(send_messages = True, read_messages = True, manage_roles = True, manage_messages = True, manage_permissions = True)
+async def unmute(ctx, member: discord.Member = None):
+    muted_role = discord.utils.get(ctx.guild.roles, name  = "Muted")
+    if member is not None:
+        if muted_role in member.roles:
+            await member.remove_roles(muted_role)
+            await ctx.send(embed = discord.Embed(title = f"{member} is unmuted.", color = capycolor))
+            
+        if muted_role not in member.roles:
+            await ctx.send(embed = discord.Embed(title = f"{member} is not muted.", color = capycolor))
+
+    if member is None:
+        await ctx.send(embed = discord.Embed(title = f"You need to enter the username as argument.", color = capycolor))
 
 
 
@@ -694,7 +711,7 @@ async def clear(ctx, amount = 10): #deletes messages
 @dislash.has_permissions(ban_members=True)
 @dislash.bot_has_permissions(send_messages = True, read_messages = True, ban_members = True)
 @inter_client.slash_command(
-    description="Bans a user",
+    description="Bans a user.",
     options=[
         Option("member", "User you want to ban.", OptionType.USER),
         Option("reason", "Ban reason.", OptionType.STRING)
@@ -722,7 +739,7 @@ async def ban(inter: ContextMenuInteraction,  member:discord.Member = None, reas
 @dislash.has_permissions(ban_members=True)
 @dislash.bot_has_permissions(send_messages = True, read_messages = True, ban_members = True)
 @inter_client.slash_command(
-    description="Unbans a user",
+    description="Unbans a user.",
     options=[
         Option("member", "User you want to unban.(with #discriminator)", OptionType.STRING),
     ]
@@ -746,6 +763,98 @@ async def unban(inter: ContextMenuInteraction, member = None):
     if member == None:
         await inter.respond(embed = discord.Embed(title = "You didn't select a user.", color = capycolor))
         return 
+
+
+@dislash.cooldown(1,5, commands.BucketType.user)
+@dislash.has_permissions(manage_roles = True, ban_members = True, manage_permissions = True)
+@dislash.bot_has_permissions(send_messages = True, read_messages = True, manage_roles = True, manage_messages = True, manage_permissions = True)
+@inter_client.slash_command(
+    description="Mutes a user.",
+    options=[
+        Option("member", "User you want to mute.", OptionType.USER),
+        Option("reason", "Reason of the mute.", OptionType.STRING),
+        Option("time", "Time you want to set the mute in format: 1s, 2m, 3h, 4d.", OptionType.STRING),
+    ]
+)
+async def mute(ctx, member: discord.Member = None, reason: str = None, time = None):
+    perms = discord.Permissions(speak = False, send_messages = False, read_message_history = False, read_messages = False)
+    muted_role = discord.utils.get(ctx.guild.roles, name  = "Muted")
+
+    if not muted_role:
+        muted_role = await ctx.guild.create_role(name = "Muted")
+    
+    await muted_role.edit(permissions = perms)
+
+    if member is None:
+        await ctx.send(embed = discord.Embed(title = f"You need to enter the username as argument.", color = capycolor))
+        
+    elif  member is not None:
+
+        if reason is not None:
+            await member.add_roles(muted_role, reason = reason)
+
+            if time is not None:
+                args = time.lower()
+                matches = re.findall(time_regex, args)
+                time = 0
+                for v, k in matches:
+                    time += time_dict[k]*float(v)
+
+                await ctx.send(embed = discord.Embed(title = f"Muted **{member}** for **{reason}** for **{time}**s.", color = capycolor))
+                await member.send(embed = discord.Embed(title = f"You were muted for **{reason}** for **{time}**s.", color = capycolor))
+
+                await asyncio.sleep(time)
+                await member.remove_roles(muted_role)
+
+            if time is None:
+                await ctx.send(embed = discord.Embed(title = f"Muted **{member}** for **{reason}**,", color = capycolor))
+                await member.send(embed = discord.Embed(title = f"You were muted for **{reason}**.", color = capycolor))
+
+        if reason is None:
+            reason = "one good reason"
+            await member.add_roles(muted_role, reason = reason)
+
+            if time is not None:
+                args = time.lower()
+                matches = re.findall(time_regex, args)
+                time = 0
+                for v, k in matches:
+                    time += time_dict[k]*float(v)
+                await ctx.send(embed = discord.Embed(title = f"Muted {member} for **{reason}** for **{time}**s.", color = capycolor))
+                await member.send(embed = discord.Embed(title = f"You were muted for **{reason}** for **{time}**s.", color = capycolor))
+
+                await asyncio.sleep(time)
+                await member.remove_roles(muted_role)
+
+            if time is None:
+                await ctx.send(embed = discord.Embed(title = f"Muted {member} for **{reason}**.", color = capycolor))
+                await member.send(embed = discord.Embed(title = f"You were muted for **{reason}**,", color = capycolor))
+
+    elif muted_role in member.roles:
+        await ctx.send(embed = discord.Embed(title = f"{member} is already muted.", color = capycolor))
+
+@dislash.cooldown(1,5, commands.BucketType.user)
+@dislash.has_permissions(manage_roles = True, ban_members = True, manage_permissions = True)
+@dislash.bot_has_permissions(send_messages = True, read_messages = True, manage_roles = True, manage_messages = True, manage_permissions = True)
+@inter_client.slash_command(
+    description="Unmutes a user.",
+    options=[
+        Option("member", "User you want to mute.", OptionType.USER),
+    ]
+)
+async def unmute(ctx, member: discord.Member = None):
+    muted_role = discord.utils.get(ctx.guild.roles, name  = "Muted")
+    if member is not None:
+        if muted_role in member.roles:
+            await member.remove_roles(muted_role)
+            await ctx.send(embed = discord.Embed(title = f"{member} is unmuted.", color = capycolor))
+
+        if muted_role not in member.roles:
+            await ctx.send(embed = discord.Embed(title = f"{member} is not muted.", color = capycolor))
+
+
+    if member is None:
+        await ctx.send(embed = discord.Embed(title = f"You need to enter the username as argument.", color = capycolor))
 
 
 #help slash command
