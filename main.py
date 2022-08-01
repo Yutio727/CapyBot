@@ -2,6 +2,7 @@ import discord
 import discord.utils
 from discord import Member
 from discord.ext import commands
+import re
 import os
 import random
 import os.path
@@ -19,9 +20,9 @@ PATH_IMAGEDATABASE = config("PATH_IMAGEDATABASE")
 PATH_PREFIX = config("PATH_PREFIX")
 CAPY_BASE = config("DATABASE")
 
-translator = googletrans.Translator()
+translator = googletrans.Translator() #googletrans lib
 
-intents = discord.Intents.default()
+intents = discord.Intents.default() #discord intents
 intents.members = True
 
 
@@ -44,13 +45,32 @@ capybara_words = [
     'Fapu', 'Ikhonsaba', "水豚", "Capy"
 ] #almost all languages & some forms of rus and eng from googletrans
 
-capycolor = discord.Color.from_rgb(219, 188, 129)
+capycolor = discord.Color.from_rgb(219, 188, 129) #unique color for embeds 
 
-message_on_cooldown = [] 
-lang_list = []
+time_regex = re.compile("(?:(\d{1,5})(h|s|m|d))+?") #regex for mute command
+time_dict = {"h":3600, "s":1, "m":60, "d":86400} #time in seconds to convert in mute command
+
+message_on_cooldown = [] #used in on_message
+lang_list = [] #used in {prefix}help languages_list
+
 DEFAULT_PREFIX = "!"
 DEFAULT_TOGGLE = "On"
 
+
+
+class TimeConverter(commands.Converter):
+    async def convert(self, ctx, argument):
+        args = argument.lower()
+        matches = re.findall(time_regex, args)
+        time = 0
+        for v, k in matches:
+            try:
+                time += time_dict[k]*float(v)
+            except KeyError:
+                raise commands.BadArgument("{} is an invalid time-key! h/m/s/d are valid!".format(k))
+            except ValueError:
+                raise commands.BadArgument("{} is not a number!".format(v))
+        return time
 
 async def get_prefix(bot, message): #getting prefix from database
     if not message.guild:
@@ -65,12 +85,14 @@ async def get_prefix(bot, message): #getting prefix from database
     else:
         prefix = prefix[0].get("prefix")
 
+
     if len(toggle) == 0:
         await bot.db.execute("INSERT INTO capypics(guild_id, toggle) VALUES ($1, $2)", message.guild.id, DEFAULT_TOGGLE)
         toggle = DEFAULT_TOGGLE
     else:
         toggle = toggle[0].get("toggle")
     #   print(toggle)
+
     return commands.when_mentioned_or(prefix)(bot, message)
 
 
@@ -82,13 +104,15 @@ async def create_db_pool(): #connecting to database
 #bot command
 bot = commands.Bot(command_prefix = get_prefix, intents=intents, help_command = None, activity = discord.Activity(type=discord.ActivityType.playing, name="!help"), status=discord.Status.idle)
 
-inter_client = InteractionClient(bot, test_guilds = [815928209786011678]) #delete test_guilds to get it to production
+inter_client = InteractionClient(bot, test_guilds = [815928209786011678,990336510895222795,1002519224046075904]) #delete test_guilds to get it to production
 
 
 @bot.event
 async def on_ready(): #when bot is ready
     print("{0.user} is fully operational.".format(bot)) #when the bot is loaded
-    print("Please wait atleast 20 seconds before using slash commands.")
+    print("Please wait atleast 1 minute before using slash commands if test_guilds are not set in inter_client.")
+    # for guild in bot.guilds:
+    #     print(guild.id)
 
 
 
@@ -105,6 +129,7 @@ async def on_command_error(ctx, error): #handling errors
     elif isinstance(error, commands.CommandInvokeError):
         em = discord.Embed(title=f"Something went wrong.", color=capycolor)
         await ctx.send(embed = em, delete_after = 15)
+        raise error
 
     elif isinstance(error, commands.MissingRequiredArgument):
         em = discord.Embed(title=f"You haven't entered all required arguments.", color=capycolor)
@@ -123,14 +148,14 @@ async def on_command_error(ctx, error): #handling errors
         await ctx.send(embed = em, delete_after = 15)
 
     elif isinstance(error, commands.BadArgument):
-        em = discord.Embed(title = "You put in wrong argument.", color = capycolor)
+        em = discord.Embed(title = "You entered the wrong argument.", color = capycolor)
         await ctx.send(embed = em, delete_after = 15)
 
     elif isinstance(error, commands.BotMissingPermissions):
         em = discord.Embed(title = f"Bot is missing needed permissions: {error}.")
         await ctx.send(embed = em, delete_after = 15)
     else:
-       raise error
+       raise error #raises the error if it's not already listed in isinstanse
 
 @bot.event
 async def on_slash_command_error(inter: ContextMenuInteraction, error):
@@ -143,45 +168,50 @@ async def on_slash_command_error(inter: ContextMenuInteraction, error):
         await inter.respond(embed = em, ephemeral = True)
         
     elif isinstance(error, KeyError):
-        em = discord.Embed(title=f"You put in wrong argument.", color=capycolor)
+        em = discord.Embed(title=f"You entered in wrong argument.", color=capycolor)
         await inter.respond(embed = em, ephemeral = True)
     else:
-        raise error
+        raise error #raises the error if it's not already listed in isinstanse
 
 
 @bot.command(aliases=["setpre"])
 @commands.has_permissions(administrator = True)
+@commands.bot_has_permissions(change_nickname = True, send_messages = True, read_messages = True)
 @commands.cooldown(1, 5, type=commands.BucketType.guild)
-async def prefix(ctx, new_prefix):#changes the prefix
+async def prefix(ctx, new_prefix = ""):#changes the prefix
     if len(new_prefix) > 0 and len(new_prefix) <= 3:
         await bot.db.execute("UPDATE guilds SET prefix = $1 WHERE guild_id = $2", new_prefix, ctx.guild.id)
-        em = discord.Embed(title = f"Prefix was changed to: {new_prefix}", color = capycolor)
-        await ctx.send(embed = em)
-        await ctx.guild.me.edit(nick = f"CapyBot [{new_prefix}]")
+        await ctx.send(embed = discord.Embed(title = f"Prefix was changed to: {new_prefix}", color = capycolor))
+        await ctx.guild.me.edit(nick = f"CapyBot [{new_prefix}]") #changes nickname with current guild prefix
+
+    elif len(new_prefix) == 0:
+        await ctx.send(embed = discord.Embed(title = "You didn't enter the prefix", color = capycolor))
+
     else:
-        em = discord.Embed(title = "Your prefix is way too long, try shorter one.", color = capycolor)
-        await ctx.send(embed = em)
+        await ctx.send(embed = discord.Embed(title = "Your prefix is way too long, try shorter one.", color = capycolor))
 
 
 
 
 @bot.command()
 @commands.has_permissions(administrator = True)
+@commands.bot_has_permissions(send_messages = True, read_messages = True)
 @commands.cooldown(1, 5, type=commands.BucketType.channel)
 async def capybara(ctx):
-    toggle = await bot.db.fetch("SELECT toggle FROM capypics     WHERE guild_id = $1", ctx.guild.id)
+    toggle = await bot.db.fetch("SELECT toggle FROM capypics WHERE guild_id = $1", ctx.guild.id)
     toggle = toggle[0].get("toggle")
+
     if  toggle == "On":
         await bot.db.execute("UPDATE capypics SET toggle = $1 WHERE guild_id = $2", "Off", ctx.guild.id)
-        em = discord.Embed(title = "Capybara pics are off.", color = capycolor)
-        await ctx.channel.send(embed = em)
+        await ctx.channel.send(embed = discord.Embed(title = "Capybara pics are off.", color = capycolor))
+
     if toggle == "Off":
         await bot.db.execute("UPDATE capypics SET toggle = $1 WHERE guild_id = $2", "On", ctx.guild.id)
-        em = discord.Embed(title = "Capybara pics are on.", color = capycolor)
-        await ctx.channel.send(embed = em)
+        await ctx.channel.send(embed = discord.Embed(title = "Capybara pics are on.", color = capycolor))
 
 @bot.command()
 @commands.cooldown(1, 5, type=commands.BucketType.user)
+@commands.bot_has_permissions(send_messages = True, read_messages = True)
 async def translate(ctx, sentence, destination = "", source = ""): #this thing translates text to whatever you want (google translate) by any args
     if len(str(sentence)) > 0:
         if len(destination) == 2:
@@ -189,21 +219,23 @@ async def translate(ctx, sentence, destination = "", source = ""): #this thing t
                 translation = translator.translate(sentence, destination, source)
                 em = discord.Embed(title = f"{translation.text}", description = f"Translated **{sentence}**, from **{source}** to **{destination}**.", color = capycolor)
                 await ctx.channel.send(embed = em)
+
             if len(source) == 0:
                 translation = translator.translate(sentence, destination)
                 em = discord.Embed(title = f"{translation.text}", description = f"Translated **{sentence}**, to **{destination}**.", color = capycolor)
                 await ctx.channel.send(embed = em)
+
         if len(destination) == 0 and len(source) == 0:
             translation = translator.translate(sentence)
             em = discord.Embed(title = f"{translation.text}", description = f" Translated **{sentence}**.", color = capycolor)
             await ctx.channel.send(embed = em)
     else: 
-        em = discord.Embed(title = "You didn't put any text to translate.", color = capycolor)
-        await ctx.channel.send(embed = em, delete_after = 15)
+        await ctx.channel.send(embed = discord.Embed(title = "You didn't enter any text to translate.", color = capycolor))
 
 
 @bot.command()
 @commands.cooldown(1, 5, type=commands.BucketType.user)
+@commands.bot_has_permissions(send_messages = True, read_messages = True)
 async def treply(ctx, destination = "", source = ""):
     if ctx.message.reference and (msg := ctx.message.reference.resolved) and isinstance(msg, discord.Message): #checks if you had replyed and used the command
         if len(destination) == 2:
@@ -211,113 +243,361 @@ async def treply(ctx, destination = "", source = ""):
                 translation = translator.translate(msg.content, destination, source)
                 em = discord.Embed(title = f"{translation.text}", description = f"Translated **{msg.content}**, from **{source}** to **{destination}**.", color = capycolor)
                 await ctx.channel.send(embed = em)
+
             if len(source) == 0:
                 translation = translator.translate(msg.content, destination)
                 em = discord.Embed(title = f"{translation.text}", description = f"Translated **{msg.content}**, to **{destination}**.", color = capycolor)
                 await ctx.channel.send(embed = em)
+
         if len(destination) == 0 and len(source) == 0:
             translation = translator.translate(msg.content)
             em = discord.Embed(title = f"{translation.text}", description = f" Translated **{msg.content}**.", color = capycolor)
             await ctx.channel.send(embed = em)
     else: 
-        em = discord.Embed(title = "You need to reply to an existing message.", color = capycolor)
-        await ctx.channel.send(embed = em, delete_after = 15)
+        await ctx.channel.send(embed = discord.Embed(title = "You need to reply to an existing message.", color = capycolor))
 
 
 @bot.command()
 @commands.cooldown(1, 5, type=commands.BucketType.user)
-async def language(ctx, language = ""): #you put the language or the language code - it gives you the language code or language
+@commands.bot_has_permissions(send_messages = True, read_messages = True)
+async def language(ctx, language = ""): #you enter the language or the language code - it gives you the language code or language
     if len(language) == 2:
         lang_code = googletrans.LANGUAGES[str(language)]
-        em = discord.Embed(title = f"**{lang_code}** is  **{language}**", color = capycolor)
-        await ctx.channel.send(embed = em)
+        await ctx.channel.send(embed = discord.Embed(title = f"**{lang_code}** is  **{language}**", color = capycolor))
 
     elif len(language) > 2:
         lang_code = googletrans.LANGCODES[str(language)]
-        em = discord.Embed(title = f"**{language}** is  **{lang_code}**", color = capycolor)
-        await ctx.channel.send(embed = em)
+        await ctx.channel.send(embed = discord.Embed(title = f"**{language}** is  **{lang_code}**", color = capycolor))
+
     else:
-        em = discord.Embed(title = "Your language isn't on the list.", color = capycolor)
-        await ctx.channel.send(embed = em)
+        await ctx.channel.send(embed = discord.Embed(title = "Your language isn't on the list.", color = capycolor))
 
     
 @bot.command()
 @commands.cooldown(1, 5, type=commands.BucketType.user)
-@commands.has_permissions(administrator = True)
+@commands.has_permissions(manage_messages = True)
+@commands.bot_has_permissions(send_messages = True, read_messages = True, manage_messages = True)
 async def clear(ctx, amount=10): #deletes messages
     if amount <= 50:
         await ctx.channel.purge(limit=amount)
+
     else:
-        await ctx.channel.send("Message deleting limit is 50.")
+        await ctx.channel.send(embed = discord.Embed(title = "Clear limit is 50.", color = capycolor))
 
 
 @bot.command()
 @commands.cooldown(1, 30, commands.BucketType.user)
 @commands.has_permissions(administrator = True)
-async def ping(ctx, user:discord.User): #pings the user and immediately deletes the message
-    await ctx.send(f'{user.mention}', delete_after=0)
-    await ctx.message.delete()
+@commands.bot_has_permissions(send_messages = True, read_messages = True)
+async def ping(ctx, user:discord.User = None): #pings the user and immediately deletes the message
+    if user is not None:
+        await ctx.send(f'{user.mention}', delete_after=0)
+        await ctx.message.delete()
+    else:
+        await ctx.send(embed = discord.Embed(title = "You didn't enter the nickname.", color = capycolor))
 
 
 @bot.command()
 @commands.cooldown(1,5, type=commands.BucketType.user)
-@commands.has_permissions(administrator = True)
+@commands.has_permissions(ban_members = True)
+@commands.bot_has_permissions(send_messages = True, read_messages = True, ban_members = True)
 async def ban(ctx,  member:discord.Member = None, reason = "one good reason"):
     if member == None:
         await ctx.channel.send(embed = discord.Embed(title = "You didn't select a user or user not found.", color = capycolor))
         return
+
     if member == ctx.message.author:
         await ctx.channel.send(embed = discord.Embed(title = "You can't ban yourself.", color = capycolor))
         return
+
     if member == bot.user:  
         await ctx.channel.send(embed = discord.Embed(title = "You can't ban this bot using this bots command, lol.", color = capycolor))
         return
 
     await ctx.guild.ban(member, reason = reason)
     await member.send(embed = discord.Embed(title = f"You have been banned from {ctx.guild.name} for {reason}", color = capycolor))
-
-    await ctx.channel.send(embed = discord.Embed(title = f"{member} is terminated."), color = capycolor)
-async def unban(inter: ContextMenuInteraction, member = None):
-    if member != None:
-        banned_users = await inter.guild.bans()
-        member_name, member_discriminator = member.split("#")
-        for ban_entry in banned_users:
-            user = ban_entry.user
-            if (user.name, user.discriminator) == (member_name, member_discriminator):
-                await inter.guild.unban(user)
-                await inter.respond(embed = discord.Embed(title = f"Unbanned {member}", color = capycolor))
-                return
-            else:
-                await inter.respond(embed = discord.Embed(title = f"{member} isn't banned.", color = capycolor))
-                return
-    if member == None:
-        await inter.respond(embed = discord.Embed(title = "You didn't select a user.", color = capycolor))
-        return 
+    await ctx.channel.send(embed = discord.Embed(title = f"{member.mention} is terminated."), color = capycolor)
 
 
 @bot.command()
 @commands.cooldown(1,5, type=commands.BucketType.user)
-@commands.has_permissions(administrator = True)
+@commands.has_permissions(ban_members = True)
+@commands.bot_has_permissions(send_messages = True, read_messages = True, ban_members = True)
 async def unban(ctx, member = None):
     if member != None:
         banned_users = await ctx.guild.bans()
         member_name, member_discriminator = member.split("#")
         for ban_entry in banned_users:
             user = ban_entry.user
+
             if (user.name, user.discriminator) == (member_name, member_discriminator):
                 await ctx.guild.unban(user)
                 await ctx.send(embed = discord.Embed(title = f"Unbanned {member}", color = capycolor))
                 return
+
             else:
                 await ctx.send(embed = discord.Embed(title = f"{member} isn't banned.", color = capycolor))
                 return
+
     if member == None:
         await ctx.channel.send(embed = discord.Embed(title = "You didn't select a user.", color = capycolor))
         return 
 
 
+@bot.command()
+@commands.cooldown(1,5, type=commands.BucketType.user)
+@commands.has_permissions(manage_roles = True, ban_members = True, manage_permissions = True)
+@commands.bot_has_permissions(send_messages = True, read_messages = True, manage_roles = True, manage_messages = True, manage_permissions = True)
+async def mute(ctx, member: discord.Member = None, reason: str = None, time:TimeConverter = None):
+    perms = discord.Permissions(speak = False, send_messages = False, read_message_history = False, read_messages = False)
+    muted_role = discord.utils.get(ctx.guild.roles, name  = "Muted")
+
+    if not muted_role:
+        muted_role = await ctx.guild.create_role(name = "Muted")
+    
+    await muted_role.edit(permissions = perms)
+
+    if muted_role in member.roles:
+        await ctx.send(embed = discord.Embed(title = f"{member} is already muted.", color = capycolor))
+        
+    elif  member is not None:
+
+        if reason is not None:
+            await member.add_roles(muted_role, reason = reason)
+
+            if time is not None:
+                await ctx.send(embed = discord.Embed(title = f"Muted **{member}** for **{reason}** for **{time}**s.", color = capycolor))
+                await member.send(embed = discord.Embed(title = f"You were muted for **{reason}** for **{time}**s.", color = capycolor))
+
+                await asyncio.sleep(time)
+                await member.remove_roles(muted_role)
+
+            if time is None:
+                await ctx.send(embed = discord.Embed(title = f"Muted **{member}** for **{reason}**,", color = capycolor))
+                await member.send(embed = discord.Embed(title = f"You were muted for **{reason}**.", color = capycolor))
+
+        if reason is None:
+            reason = "one good reason"
+            await member.add_roles(muted_role, reason = reason)
+
+            if time is not None:
+                await ctx.send(embed = discord.Embed(title = f"Muted {member} for **{reason}** for **{time}**s.", color = capycolor))
+                await member.send(embed = discord.Embed(title = f"You were muted for **{reason}** for **{time}**s.", color = capycolor))
+
+            if time is None:
+                await ctx.send(embed = discord.Embed(title = f"Muted {member} for **{reason}**.", color = capycolor))
+                await member.send(embed = discord.Embed(title = f"You were muted for **{reason}**,", color = capycolor))
+
+    elif member is None:
+        await ctx.send(embed = discord.Embed(title = f"Muted {member} for **{reason}**.", color = capycolor))
+
+
+
+#help command for prefix use
+@bot.group(invoke_without_command = True)
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
+@commands.bot_has_permissions(send_messages = True, read_messages = True)
+async def help(ctx): # new help command
+    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
+    prefix = prefix[0].get("prefix")
+
+    em = discord.Embed(title = "Help", description = f"Use **{prefix}help <command>** to get more information on a command.", color = capycolor)
+
+    em.add_field(name = "Translation", value = "**translate, treply, language, languages_list**")
+    em.add_field(name = "Capybara", value = "**capybara**")
+    em.add_field(name = "Bot commands", value = "**prefix, clear, ping, ban, unban**")
+    em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
+
+    await ctx.send(embed = em)
+
+
+@help.command()
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
+@commands.bot_has_permissions(send_messages = True, read_messages = True)
+async def translate(ctx):
+    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
+    prefix = prefix[0].get("prefix")
+
+    em = discord.Embed(title = "translate", description = "Translates a word or a sentence.", color = capycolor)
+
+    em.add_field(name = "Syntax", value = f"**{prefix}translate <'sentence'> [s='(sourse language)'] [d='(destination language)']**")
+    em.add_field(name = "Additional info", value = f"You can get a list of all languages by calling a **{prefix}help languages_list** or use a **{prefix}language** to get a language code.")
+    em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
+
+    await ctx.send(embed = em)
+
+@help.command()
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
+@commands.bot_has_permissions(send_messages = True, read_messages = True)
+async def language(ctx):
+    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
+    prefix = prefix[0].get("prefix")
+
+    em = discord.Embed(title = "languages", description = "Gives you a code to language or a language to a code.", color = capycolor)
+
+    em.add_field(name = "Syntax", value = f"**{prefix}languages <('english' for code) or] ('en' for language)>**")
+    em.add_field(name = "Additional info", value = f"You can get a list of all languages by calling a **{prefix}help languages_list**.")
+    em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
+
+    await ctx.send(embed = em)
+
+@help.command()
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
+@commands.bot_has_permissions(send_messages = True, read_messages = True)
+async def languages_list(ctx):
+    for l in googletrans.LANGUAGES.values():
+        lang_list.append(l)
+    em = discord.Embed(title = "languages_list", description = "\n".join(lang_list), color = capycolor)
+
+    em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
+
+    await ctx.send(embed = em)
+
+@help.command()
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
+@commands.bot_has_permissions(send_messages = True, read_messages = True)
+async def treply(ctx):
+    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
+    prefix = prefix[0].get("prefix")
+
+    em = discord.Embed(title = "treply", description = "Translates message you replyed to.", color = capycolor)
+
+    em.add_field(name = "Syntax", value = f"**{prefix}treply [d='(destination language)'] [s='(sourse language)']**")
+    em.add_field(name = "Default languages", value = "The defaults are:\n • Auto source language \n • English as a destination language")
+    em.add_field(name = "Additional info", value = f"You can get a list of all languages by calling a **{prefix}help languages_list** or use a **{prefix}language** to get a language code.")
+    em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
+
+    await ctx.send(embed = em)
+
+@help.command()
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
+@commands.bot_has_permissions(send_messages = True, read_messages = True)
+async def capybara(ctx):
+    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
+    prefix = prefix[0].get("prefix")
+
+    em = discord.Embed(title = "capybara", description = "Toogles On and Off on your capybara pics dispenser.", color = capycolor)
+
+    em.add_field(name = "Syntax", value = f"{prefix}capybara")
+    em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
+
+    await ctx.send(embed = em)
+
+@help.command()
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
+@commands.bot_has_permissions(send_messages = True, read_messages = True)
+async def prefix(ctx):
+    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
+    prefix = prefix[0].get("prefix")
+
+    em = discord.Embed(title = "prefix", description = "Changes your server prefix.", color = capycolor)
+
+    em.add_field(name = "Syntax" , value = f"**{prefix}prefix '<new_prefix>'**")
+    em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
+
+    await ctx.send(embed = em)
+
+@help.command()
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
+@commands.bot_has_permissions(send_messages = True, read_messages = True)
+async def clear(ctx):
+    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
+    prefix = prefix[0].get("prefix")
+
+    em = discord.Embed(title = "clear", description = "Deletes messages. Standart amount is **10**, but you can set up to **50**.", color = capycolor)
+
+    em.add_field(name = "Syntax", value = f"**{prefix}clear [amount]**")
+    em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
+
+    await ctx.send(embed = em)
+
+@help.command()
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
+@commands.bot_has_permissions(send_messages = True, read_messages = True)
+async def ping(ctx):
+    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
+    prefix = prefix[0].get("prefix")
+
+    em = discord.Embed(title = "ping", description = "Pings a user and deletes the messages after, making it a ghost ping.", color = capycolor)
+
+    em.add_field(name = "Syntax", value = f"**{prefix}ping '<user (without #(discriminator))>'**")
+    em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
+
+    await ctx.send(embed = em)
+
+@help.command()
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
+@commands.bot_has_permissions(send_messages = True, read_messages = True)
+async def ban(ctx):
+    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
+    prefix = prefix[0].get("prefix")
+
+    em = discord.Embed(title = "ban", description = "Bans a user.", color = capycolor)
+
+    em.add_field(name = "Syntax", value = f"**{prefix}ban '<user (can be without #(discriminator))>' '<reason>'**")
+    em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
+
+    await ctx.send(embed = em)
+
+@help.command()
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
+@commands.bot_has_permissions(send_messages = True, read_messages = True)
+async def unban(ctx):
+    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
+    prefix = prefix[0].get("prefix")
+
+    em = discord.Embed(title = "unban", description = "Unbans a user.", color = capycolor)
+
+    em.add_field(name = "Syntax", value = f"**{prefix}unban '<user (with #(discriminator))>'**")
+    em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
+
+    await ctx.send(embed = em)
+
+
+#regular slash commands
+@dislash.cooldown(1, 5, commands.BucketType.user)
+@dislash.has_permissions(administrator = True)
+@dislash.bot_has_guild_permissions(change_nickname = True, send_messages = True, read_messages = True)
+@inter_client.slash_command(
+    description="Changes the prefix on your server.",
+    options=[
+        Option("new_prefix", "Prefix you want to use on your server.", OptionType.STRING),
+    ]
+)
+async def prefix(ctx, new_prefix = ""):#changes the prefix
+    if len(new_prefix) > 0 and len(new_prefix) <= 3:
+        await bot.db.execute("UPDATE guilds SET prefix = $1 WHERE guild_id = $2", new_prefix, ctx.guild.id)
+        await ctx.send(embed = discord.Embed(title = f"Prefix was changed to: {new_prefix}", color = capycolor))
+        await ctx.guild.me.edit(nick = f"CapyBot [{new_prefix}]")
+
+    elif len(new_prefix) == 0:
+        await ctx.send(embed = discord.Embed(title = "You didn't enter the prefix", color = capycolor))
+
+    else:
+        await ctx.send(embed = discord.Embed(title = "Your prefix is way too long, try shorter one.", color = capycolor))
+
+
+@dislash.cooldown(1, 30, commands.BucketType.user)
+@dislash.has_permissions(administrator = True)
+@dislash.bot_has_guild_permissions(send_messages = True, read_messages = True)
+@inter_client.slash_command(
+    description="Toogles the capybara pics sending."
+)
+async def capybara(ctx):
+    toggle = await bot.db.fetch("SELECT toggle FROM capypics     WHERE guild_id = $1", ctx.guild.id)
+    toggle = toggle[0].get("toggle")
+
+    if  toggle == "On":
+        await bot.db.execute("UPDATE capypics SET toggle = $1 WHERE guild_id = $2", "Off", ctx.guild.id)
+        await ctx.respond(embed = discord.Embed(title = "Capybara pics are off.", color = capycolor))
+
+    if toggle == "Off":
+        await bot.db.execute("UPDATE capypics SET toggle = $1 WHERE guild_id = $2", "On", ctx.guild.id)
+        await ctx.respond(embed = discord.Embed(title = "Capybara pics are on.", color = capycolor))
+
 
 @dislash.cooldown(1,5, type=commands.BucketType.user)
+@dislash.bot_has_guild_permissions(send_messages = True, read_messages = True)
 @inter_client.command(
     description="Translates a word or a sentence",
     options=[
@@ -332,20 +612,22 @@ async def translate(inter, sentence = None, source = None, destination = None): 
                 translation = translator.translate(sentence, destination, source)
                 em = discord.Embed(title = f"{translation.text}", description = f"Translated **{sentence}**, from **{source}** to **{destination}**.", color = capycolor)
                 await inter.respond(embed = em)
+
             if source is not None and destination is None:
                 translation = translator.translate(sentence, source)
                 em = discord.Embed(title = f"{translation.text}", description = f"Translated **{sentence}**, from **{source}**.", color = capycolor)
                 await inter.respond(embed = em)
+
             if destination is not None and source is None:
                 translation = translator.translate(sentence, destination)
                 em = discord.Embed(title = f"{translation.text}", description = f"Translated **{sentence}**.", color = capycolor)
                 await inter.respond(embed = em)
     else:
-        em = discord.Embed(title = "You didn't put any text to translate.", color = capycolor)
-        await inter.respond(embed = em)   
+        await inter.respond(embed = discord.Embed(title = "You didn't enter any text to translate.", color = capycolor))   
 
 
 @dislash.cooldown(1,5, type=commands.BucketType.user)
+@dislash.bot_has_guild_permissions(send_messages = True, read_messages = True)
 @inter_client.slash_command(
     description="Translates a word or a sentence",
     options=[
@@ -356,71 +638,39 @@ async def language(inter, language = None):
     if language is not None:
         if len(str(language)) == 2:
             lang_code = googletrans.LANGUAGES[str(language)]
-            em = discord.Embed(title = f"{lang_code} is  **{language}**", color = capycolor)
-            await inter.respond(embed = em)  
+            await inter.respond(embed = discord.Embed(title = f"{lang_code} is  **{language}**", color = capycolor))  
+
         elif len(str(language)) > 2:
             lang_code = googletrans.LANGCODES[str(language)]
-            em = discord.Embed(title = f"{language} is  **{lang_code}**", color = capycolor)
-            await inter.respond(embed = em)  
+            await inter.respond(embed = discord.Embed(title = f"{language} is  **{lang_code}**", color = capycolor))  
+
     elif language is None:
-        em = discord.Embed(title = "You need to enter the language.", color = capycolor)
-        await inter.respond(embed = em) 
+        await inter.respond(embed = discord.Embed(title = "You need to enter the language.", color = capycolor))
+
     else:
-        em = discord.Embed(title = "Your language isn't on the list.", color = capycolor)
-        await inter.respond(embed = em)
+        await inter.respond(embed = discord.Embed(title = "Your language isn't on the list.", color = capycolor))
 
 
 @dislash.cooldown(1, 30, commands.BucketType.user)
 @dislash.has_permissions(administrator = True)
+@dislash.bot_has_guild_permissions(send_messages = True, read_messages = True)
 @inter_client.slash_command(
     description="Pings a user and deletes a message.",
     options=[
         Option("user", "User your want to ping.", OptionType.USER),
     ]
 )
-async def ping(inter, user:discord.User): #pings the user and immediately deletes the message
-    await inter.send(f'{user.mention}', delete_after=0)
+async def ping(inter, user:discord.User = None): #pings the user and immediately deletes the message
+    if user is not None:
+        await inter.send(f'{user.mention}', delete_after=0)
 
-
-@dislash.cooldown(1, 5, commands.BucketType.user)
-@dislash.has_permissions(administrator = True)
-@inter_client.slash_command(
-    description="Changes the prefix on your server.",
-    options=[
-        Option("new_prefix", "Prefix you want to use on your server.", OptionType.STRING),
-    ]
-)
-async def prefix(ctx, new_prefix):#changes the prefix
-    if len(new_prefix) > 0 and len(new_prefix) <= 3:
-        await bot.db.execute("UPDATE guilds SET prefix = $1 WHERE guild_id = $2", new_prefix, ctx.guild.id)
-        em = discord.Embed(title = f"Prefix was changed to: {new_prefix}", color = capycolor)
-        await ctx.send(embed = em)
-        await ctx.guild.me.edit(nick = f"CapyBot [{new_prefix}]")
     else:
-        em = discord.Embed(title = "Your prefix is way too long, try shorter one.", color = capycolor)
-        await ctx.send(embed = em)
-
-
-@dislash.cooldown(1, 30, commands.BucketType.user)
-@dislash.has_permissions(administrator = True)
-@inter_client.slash_command(
-    description="Toogles the capybara pics sending."
-)
-async def capybara(ctx):
-    toggle = await bot.db.fetch("SELECT toggle FROM capypics     WHERE guild_id = $1", ctx.guild.id)
-    toggle = toggle[0].get("toggle")
-    if  toggle == "On":
-        await bot.db.execute("UPDATE capypics SET toggle = $1 WHERE guild_id = $2", "Off", ctx.guild.id)
-        em = discord.Embed(title = "Capybara pics are off.", color = capycolor)
-        await ctx.respond(embed = em)
-    if toggle == "Off":
-        await bot.db.execute("UPDATE capypics SET toggle = $1 WHERE guild_id = $2", "On", ctx.guild.id)
-        em = discord.Embed(title = "Capybara pics are on.", color = capycolor)
-        await ctx.respond(embed = em)
+        await inter.respond(embed = discord.Embed(title = "You didn't enter the nickname.", color = capycolor))
 
 
 @dislash.cooldown(1, 5, commands.BucketType.user)
 @dislash.has_permissions(administrator = True)
+@dislash.bot_has_permissions(send_messages = True, read_messages = True, manage_messages = True)
 @inter_client.slash_command(
     description="Deletes messages by amount. (10 by default)",
     options=[
@@ -430,19 +680,19 @@ async def capybara(ctx):
 async def clear(ctx, amount = 10): #deletes messages
     if amount == 10:
         await ctx.channel.purge(limit=10)
-        em = discord.Embed(title = "10 messages are deleted.", color = capycolor)
-        await ctx.send(embed = em)
+        await ctx.send(embed = discord.Embed(title = "10 messages are deleted.", color = capycolor))
+
     elif (amount >= 1) and (amount <= 50):
         await ctx.channel.purge(limit=amount)
-        em = discord.Embed(title = f"{amount} messages are deleted.", color = capycolor)
-        await ctx.send(embed = em)
+        await ctx.send(embed = discord.Embed(title = f"{amount} messages are deleted.", color = capycolor))
+
     elif amount > 50:
-        em = discord.Embed(title = "Message deleting limit is 50.", color = capycolor)
-        await ctx.send(embed = em)
+        await ctx.send(embed = discord.Embed(title = "Message clear limit is 50.", color = capycolor))
 
 
 @dislash.cooldown(1, 5, commands.BucketType.user)
 @dislash.has_permissions(ban_members=True)
+@dislash.bot_has_permissions(send_messages = True, read_messages = True, ban_members = True)
 @inter_client.slash_command(
     description="Bans a user",
     options=[
@@ -454,21 +704,23 @@ async def ban(inter: ContextMenuInteraction,  member:discord.Member = None, reas
     if member == None:
         await inter.respond(embed = discord.Embed(title = "You didn't select a user or user not found.", color = capycolor))
         return
+
     if member == inter.author:
         await inter.respond(embed = discord.Embed(title = "You can't ban yourself.", color = capycolor))
         return
+
     if member == bot.user:  
         await inter.respond(embed = discord.Embed(title = "You can't ban this bot using this bots command, lol.", color = capycolor))
         return
 
     await inter.guild.ban(member, reason = reason)
     await member.send(embed = discord.Embed(title = f"You have been banned from {inter.guild.name} for {reason}", color = capycolor))
-
     await inter.respond(embed = discord.Embed(title = f"{member} is terminated.", color = capycolor))
 
 
 @dislash.cooldown(1, 5, commands.BucketType.user)
 @dislash.has_permissions(ban_members=True)
+@dislash.bot_has_permissions(send_messages = True, read_messages = True, ban_members = True)
 @inter_client.slash_command(
     description="Unbans a user",
     options=[
@@ -481,23 +733,30 @@ async def unban(inter: ContextMenuInteraction, member = None):
         member_name, member_discriminator = member.split("#")
         for ban_entry in banned_users:
             user = ban_entry.user
+
             if (user.name, user.discriminator) == (member_name, member_discriminator):
                 await inter.guild.unban(user)
                 await inter.respond(embed = discord.Embed(title = f"Unbanned {member}", color = capycolor))
                 return
+
             elif (user.name, user.discriminator) != (member_name, member_discriminator):
                 await inter.respond(embed = discord.Embed(title = f"{member} isn't banned.", color = capycolor))
                 return
+
     if member == None:
         await inter.respond(embed = discord.Embed(title = "You didn't select a user.", color = capycolor))
         return 
 
+
+#help slash command
+@dislash.cooldown(1, 5, commands.BucketType.guild)
+@dislash.bot_has_permissions(send_messages = True, read_messages = True)
 @inter_client.slash_command(
     description="Has subcommands",
     options=[
         Option(
             "command",
-            description="Choose command to get information about.",
+            description="Choose command to get information about it.",
             type=OptionType.STRING,
             choices=[
                 OptionChoice("translate", "translate"),
@@ -517,13 +776,14 @@ async def unban(inter: ContextMenuInteraction, member = None):
 async def help(inter: SlashInteraction, command: str = None):
     prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", inter.guild.id)
     prefix = prefix[0].get("prefix")
+
     if command == None:
         em = discord.Embed(title = "Help", description = f"Use **{prefix}help <command>** to get more information on a command. ", color = capycolor)
 
         em.add_field(name = "Translation", value = "**translate, treply, language, languages_list**")
         em.add_field(name = "Capybara", value = "**capybara**")
         em.add_field(name = "Bot commands", value = "**prefix, clear, ping, ban, unban**")
-        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+        em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
 
         await inter.respond(embed = em)
 
@@ -532,7 +792,7 @@ async def help(inter: SlashInteraction, command: str = None):
 
         em.add_field(name = "Syntax", value = f"**{prefix}translate <'sentence'> ['(sourse language)'] ['(destination language)']**")
         em.add_field(name = "Additional info", value = f"You can get a list of all languages by calling a **{prefix}help languages_list** or use a **{prefix}language** to get a language code.")
-        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+        em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
 
         await inter.respond(embed = em)
 
@@ -541,7 +801,7 @@ async def help(inter: SlashInteraction, command: str = None):
 
         em.add_field(name = "Syntax", value = f"**{prefix}languages <('english' for code) or] ('en' for language)>**")
         em.add_field(name = "Additional info", value = f"You can get a list of all languages by calling a **{prefix}help languages_list**.")
-        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+        em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
 
         await inter.respond(embed = em)
 
@@ -551,7 +811,7 @@ async def help(inter: SlashInteraction, command: str = None):
 
         em = discord.Embed(title = "languages_list", description = "\n".join(lang_list), color = capycolor)
 
-        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+        em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
 
         await inter.respond(embed = em)
     
@@ -561,7 +821,7 @@ async def help(inter: SlashInteraction, command: str = None):
         em.add_field(name = "Syntax", value = f"**{prefix}treply [d='(destination language)'] [s='(sourse language)']**")
         em.add_field(name = "Default languages", value = "The defaults are:\n • Auto source language \n • English as a destination language")
         em.add_field(name = "Additional info", value = f"You can get a list of all languages by calling a **{prefix}help languages_list** or use a **{prefix}language** to get a language code.")
-        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+        em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
 
         await inter.respond(embed = em)
 
@@ -569,7 +829,7 @@ async def help(inter: SlashInteraction, command: str = None):
         em = discord.Embed(title = "capybara", description = "Toogles On and Off on your capybara pics dispenser.", color = capycolor)
 
         em.add_field(name = "Syntax", value = f"{prefix}capybara")
-        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+        em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
 
         await inter.respond(embed = em)
     
@@ -577,7 +837,7 @@ async def help(inter: SlashInteraction, command: str = None):
         em = discord.Embed(title = "prefix", description = "Changes your server prefix.", color = capycolor)
             
         em.add_field(name = "Syntax" , value = f"**{prefix}prefix '<new_prefix>'**")
-        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+        em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
             
         await inter.respond(embed = em)
 
@@ -585,7 +845,7 @@ async def help(inter: SlashInteraction, command: str = None):
         em = discord.Embed(title = "clear", description = "Deletes messages. Standart amount is **10**, but you can set up to **50**.", color = capycolor)
             
         em.add_field(name = "Syntax", value = f"**{prefix}clear [amount]**")
-        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+        em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
             
         await inter.respond(embed = em)
     
@@ -593,7 +853,7 @@ async def help(inter: SlashInteraction, command: str = None):
         em = discord.Embed(title = "ping", description = "Pings a user and deletes the messages after, making it a ghost ping.", color = capycolor)
         
         em.add_field(name = "Syntax", value = f"**{prefix}ping '<user (without #(discriminator))>'**")
-        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+        em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
         
         await inter.respond(embed = em)
 
@@ -601,7 +861,7 @@ async def help(inter: SlashInteraction, command: str = None):
         em = discord.Embed(title = "ban", description = "Bans a user.", color = capycolor)
         
         em.add_field(name = "Syntax", value = f"**{prefix}ban '<user (can be without #(discriminator))>' '<reason>'**")
-        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+        em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
         
         await inter.respond(embed = em)
     
@@ -609,162 +869,15 @@ async def help(inter: SlashInteraction, command: str = None):
         em = discord.Embed(title = "unban", description = "Unbans a user.", color = capycolor)
 
         em.add_field(name = "Syntax", value = f"**{prefix}unban '<user (with #(discriminator))>'**")
-        em.add_field(name = "Slash", value = "You can slash alternative of that command.")
+        em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
 
         await inter.respond(embed = em)
 
+    else:
+        await inter.respond(embed = discord.Embed(title = f"There's no {prefix}help for this command.", color = capycolor))
 
 
-
-
-@bot.group(invoke_without_command = True)
-@commands.cooldown(1, 5, type=commands.BucketType.channel)
-async def help(ctx): # new help command
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
-
-    em = discord.Embed(title = "Help", description = f"Use **{prefix}help <command>** to get more information on a command.", color = capycolor)
-
-    em.add_field(name = "Translation", value = "**translate, treply, language, languages_list**")
-    em.add_field(name = "Capybara", value = "**capybara**")
-    em.add_field(name = "Bot commands", value = "**prefix, clear, ping, ban, unban**")
-    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
-
-    await ctx.send(embed = em)
-
-
-@help.command()
-@commands.cooldown(1, 5, type=commands.BucketType.channel)
-async def translate(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
-
-    em = discord.Embed(title = "translate", description = "Translates a word or a sentence.", color = capycolor)
-
-    em.add_field(name = "Syntax", value = f"**{prefix}translate <'sentence'> [s='(sourse language)'] [d='(destination language)']**")
-    em.add_field(name = "Additional info", value = f"You can get a list of all languages by calling a **{prefix}help languages_list** or use a **{prefix}language** to get a language code.")
-    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
-
-    await ctx.send(embed = em)
-
-@help.command()
-@commands.cooldown(1, 5, type=commands.BucketType.channel)
-async def language(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
-
-    em = discord.Embed(title = "languages", description = "Gives you a code to language or a language to a code.", color = capycolor)
-
-    em.add_field(name = "Syntax", value = f"**{prefix}languages <('english' for code) or] ('en' for language)>**")
-    em.add_field(name = "Additional info", value = f"You can get a list of all languages by calling a **{prefix}help languages_list**.")
-    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
-
-    await ctx.send(embed = em)
-
-@help.command()
-@commands.cooldown(1, 5, type=commands.BucketType.channel)
-async def languages_list(ctx):
-    for l in googletrans.LANGUAGES.values():
-        lang_list.append(l)
-    em = discord.Embed(title = "languages_list", description = "\n".join(lang_list), color = capycolor)
-
-    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
-
-    await ctx.send(embed = em)
-
-@help.command()
-@commands.cooldown(1, 5, type=commands.BucketType.channel)
-async def treply(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
-
-    em = discord.Embed(title = "treply", description = "Translates message you replyed to.", color = capycolor)
-
-    em.add_field(name = "Syntax", value = f"**{prefix}treply [d='(destination language)'] [s='(sourse language)']**")
-    em.add_field(name = "Default languages", value = "The defaults are:\n • Auto source language \n • English as a destination language")
-    em.add_field(name = "Additional info", value = f"You can get a list of all languages by calling a **{prefix}help languages_list** or use a **{prefix}language** to get a language code.")
-    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
-
-    await ctx.send(embed = em)
-
-@help.command()
-@commands.cooldown(1, 5, type=commands.BucketType.channel)
-async def capybara(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
-
-    em = discord.Embed(title = "capybara", description = "Toogles On and Off on your capybara pics dispenser.", color = capycolor)
-
-    em.add_field(name = "Syntax", value = f"{prefix}capybara")
-    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
-
-    await ctx.send(embed = em)
-
-@help.command()
-@commands.cooldown(1, 5, type=commands.BucketType.channel)
-async def prefix(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
-
-    em = discord.Embed(title = "prefix", description = "Changes your server prefix.", color = capycolor)
-
-    em.add_field(name = "Syntax" , value = f"**{prefix}prefix '<new_prefix>'**")
-    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
-
-    await ctx.send(embed = em)
-
-@help.command()
-@commands.cooldown(1, 5, type=commands.BucketType.channel)
-async def clear(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
-
-    em = discord.Embed(title = "clear", description = "Deletes messages. Standart amount is **10**, but you can set up to **50**.", color = capycolor)
-
-    em.add_field(name = "Syntax", value = f"**{prefix}clear [amount]**")
-    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
-
-    await ctx.send(embed = em)
-
-@help.command()
-@commands.cooldown(1, 5, type=commands.BucketType.channel)
-async def ping(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
-
-    em = discord.Embed(title = "ping", description = "Pings a user and deletes the messages after, making it a ghost ping.", color = capycolor)
-
-    em.add_field(name = "Syntax", value = f"**{prefix}ping '<user (without #(discriminator))>'**")
-    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
-
-    await ctx.send(embed = em)
-
-@help.command()
-@commands.cooldown(1, 5, type=commands.BucketType.channel)
-async def ban(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
-
-    em = discord.Embed(title = "ban", description = "Bans a user.", color = capycolor)
-
-    em.add_field(name = "Syntax", value = f"**{prefix}ban '<user (can be without #(discriminator))>' '<reason>'**")
-    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
-
-    await ctx.send(embed = em)
-
-@help.command()
-@commands.cooldown(1, 5, type=commands.BucketType.channel)
-async def unban(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
-
-    em = discord.Embed(title = "unban", description = "Unbans a user.", color = capycolor)
-
-    em.add_field(name = "Syntax", value = f"**{prefix}unban '<user (with #(discriminator))>'**")
-    em.add_field(name = "Slash", value = "You can slash alternative of that command.")
-
-    await ctx.send(embed = em)
-
+#on_message use
 @bot.event
 async def on_message(message):
     await bot.process_commands(message)
@@ -773,32 +886,39 @@ async def on_message(message):
     if message.author == bot.user:
         return
     
-    
     if (any(word.lower() in msg for word in capybara_words) or \
             any(word.upper() in msg for word in capybara_words) or \
             any(word in msg for word in capybara_words)): #searches for words in lower, upper and Ca... - like words
+
             prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", message.guild.id)
             prefix = prefix[0].get("prefix")
+
             toggle = await bot.db.fetch("SELECT toggle FROM capypics WHERE guild_id = $1", message.guild.id)
             toggle = toggle[0].get("toggle")
+        
             if not message.guild.id in message_on_cooldown and toggle == "On" and not msg.startswith(prefix):
                 os.chdir(CAPY_IMAGES) #changes main directory, doesn't work without it
                 image = random.choice(os.listdir(PATH_IMAGEDATABASE)) #gets random image of capybara from the directory
+
                 with open(image, 'rb') as f: # opens it
                     picture = discord.File(f)
                     await message.channel.send(file=picture) #sends it as a picture
+
                 message_on_cooldown.append(message.guild.id) #add guild to cooldown
                 await asyncio.sleep(5) # time in seconds
                 message_on_cooldown.remove(message.guild.id) #remove guild from cooldown
+
             if message.guild.id in message_on_cooldown:
                 em = discord.Embed(title = "Your server is on cooldown.", color = capycolor)
                 await message.channel.send(embed =  em, delete_after = 3)
+
             if toggle == "Off" and not message.guild.id in message_on_cooldown:
                 em = discord.Embed(title = "Your capypics are off.", color = capycolor)
                 await message.channel.send(embed = em, delete_after = 3)
+                
                 message_on_cooldown.append(message.guild.id) #add guild to cooldown
                 await asyncio.sleep(30) # time in seconds
                 message_on_cooldown.remove(message.guild.id) #remove guild from cooldown
 
-bot.loop.run_until_complete(create_db_pool())
+bot.loop.run_until_complete(create_db_pool()) #database requests in loop
 bot.run(TOKEN)
