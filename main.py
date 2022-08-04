@@ -296,7 +296,7 @@ async def ping(ctx, user:discord.User = None): #pings the user and immediately d
 @commands.cooldown(1,5, type=commands.BucketType.user)
 @commands.has_permissions(ban_members = True)
 @commands.bot_has_permissions(send_messages = True, read_messages = True, ban_members = True)
-async def ban(ctx,  member:discord.Member = None, reason = "one good reason"):
+async def ban(ctx,  member:discord.Member = None, reason: str = "one good reason"):
     if member == None:
         await ctx.channel.send(embed = discord.Embed(title = "You didn't select a user or user not found.", color = capycolor))
         return
@@ -310,8 +310,14 @@ async def ban(ctx,  member:discord.Member = None, reason = "one good reason"):
         return
 
     await ctx.guild.ban(member, reason = reason)
-    await member.send(embed = discord.Embed(title = f"You have been banned from {ctx.guild.name} for {reason}", color = capycolor))
-    await ctx.channel.send(embed = discord.Embed(title = f"{member.mention} is terminated."), color = capycolor)
+
+    em_m = discord.Embed(title = f"You have been banned from {ctx.guild.name}.", color = capycolor)
+    em_m.add_field(name = "Reason", value = f"**{reason}**")
+    await member.send(embed = em_m)
+
+    em = discord.Embed(title = f"{member.mention} is terminated.", color = capycolor)
+    em.add_field(name = "Reason", value = f"**{reason}**")
+    await ctx.channel.send(embed = em)
 
 
 @bot.command()
@@ -343,10 +349,9 @@ async def unban(ctx, member = None):
 @commands.cooldown(1,5, type=commands.BucketType.user)
 @commands.has_permissions(manage_roles = True, ban_members = True, manage_permissions = True)
 @commands.bot_has_permissions(send_messages = True, read_messages = True, manage_roles = True, manage_messages = True, manage_permissions = True)
-async def mute(ctx, member: discord.Member = None, reason: str = None, time:TimeConverter = None):
+async def mute(ctx, member: discord.Member = None, reason: str = "", time:TimeConverter = None):
     perms = discord.Permissions(speak = False, send_messages = False, read_message_history = False, read_messages = False)
     muted_role = discord.utils.get(ctx.guild.roles, name  = "Muted")
-    print(type(time))
 
     if not muted_role:
         muted_role = await ctx.guild.create_role(name = "Muted")
@@ -357,35 +362,63 @@ async def mute(ctx, member: discord.Member = None, reason: str = None, time:Time
         await ctx.send(embed = discord.Embed(title = f"You need to enter the username as argument.", color = capycolor))
         
     elif  member is not None:
-
-        if reason is not None:
-            await member.add_roles(muted_role, reason = reason)
-
+        await member.add_roles(muted_role, reason = reason)
+        if len(reason) != 0:
             if time is not None:
-                await ctx.send(embed = discord.Embed(title = f"Muted **{member}** for **{reason}** for **{time}**s.", color = capycolor))
-                await member.send(embed = discord.Embed(title = f"You were muted for **{reason}** for **{time}**s.", color = capycolor))
+                em_m = discord.Embed(title = f"You have been muted on {ctx.guild.name}.", color = capycolor)
+                em_m.add_field(name = "Reason", value = f"{reason}")
+                em_m.add_field(name = "Time", value = f"{round(time)}s")
+
+                await member.send(embed = em_m)
+
+                em = discord.Embed(title = f"Muted {member}.", color = capycolor)
+                em.add_field(name = "Reason", value = f"{reason}")
+                em.add_field(name = "Time", value = f"{round(time)}s")
+
+                await ctx.send(embed = em)
 
                 await asyncio.sleep(time)
                 await member.remove_roles(muted_role)
 
-            if time is None:
-                await ctx.send(embed = discord.Embed(title = f"Muted **{member}** for **{reason}**,", color = capycolor))
-                await member.send(embed = discord.Embed(title = f"You were muted for **{reason}**.", color = capycolor))
+            elif time is None:
+                em_m = discord.Embed(title = f"You have been muted on {ctx.guild.name}.", color = capycolor)
+                em_m.add_field(name = "Reason", value = f"{reason}")
 
-        if reason is None:
+                await member.send(embed = em_m)
+
+                em = discord.Embed(title = f"Muted {member}.", color = capycolor)
+                em.add_field(name = "Reason", value = f"{reason}")
+
+                await ctx.send(embed = em)
+
+        elif len(reason) == 0:
             reason = "one good reason"
-            await member.add_roles(muted_role, reason = reason)
-
             if time is not None:
-                await ctx.send(embed = discord.Embed(title = f"Muted {member} for **{reason}** for **{time}**s.", color = capycolor))
-                await member.send(embed = discord.Embed(title = f"You were muted for **{reason}** for **{time}**s.", color = capycolor))
+                em_m = discord.Embed(title = f"You have been muted on {ctx.guild.name}.", color = capycolor)
+                em_m.add_field(name = "Reason", value = f"{reason}")
+                em_m.add_field(name = "Time", value = f"{round(time)}s")
+
+                await member.send(embed = em_m)
+
+                em = discord.Embed(title = f"Muted {member}.", color = capycolor)
+                em.add_field(name = "Reason", value = f"{reason}")
+                em.add_field(name = "Time", value = f"{round(time)}s")
+
+                await ctx.send(embed = em)
 
                 await asyncio.sleep(time)
                 await member.remove_roles(muted_role)
 
-            if time is None:
-                await ctx.send(embed = discord.Embed(title = f"Muted {member} for **{reason}**.", color = capycolor))
-                await member.send(embed = discord.Embed(title = f"You were muted for **{reason}**,", color = capycolor))
+            elif time is None:
+                em_m = discord.Embed(title = f"You have been muted on {ctx.guild.name}.", color = capycolor)
+                em_m.add_field(name = "Reason", value = f"{reason}")
+
+                await member.send(embed = em_m)
+
+                em = discord.Embed(title = f"Muted {member}.", color = capycolor)
+                em.add_field(name = "Reason", value = f"{reason}")
+
+                await ctx.send(embed = em)
 
     elif muted_role in member.roles:
         await ctx.send(embed = discord.Embed(title = f"{member} is already muted.", color = capycolor))
@@ -397,17 +430,37 @@ async def mute(ctx, member: discord.Member = None, reason: str = None, time:Time
 @commands.bot_has_permissions(send_messages = True, read_messages = True, manage_roles = True, manage_messages = True, manage_permissions = True)
 async def unmute(ctx, member: discord.Member = None):
     muted_role = discord.utils.get(ctx.guild.roles, name  = "Muted")
+
     if member is not None:
         if muted_role in member.roles:
             await member.remove_roles(muted_role)
             await ctx.send(embed = discord.Embed(title = f"{member} is unmuted.", color = capycolor))
-            
-        if muted_role not in member.roles:
+
+        elif muted_role not in member.roles:
             await ctx.send(embed = discord.Embed(title = f"{member} is not muted.", color = capycolor))
 
-    if member is None:
+    elif member is None:
         await ctx.send(embed = discord.Embed(title = f"You need to enter the username as argument.", color = capycolor))
 
+@bot.command()
+@commands.cooldown(1, 5, type=commands.BucketType.user)
+@commands.bot_has_permissions(send_messages = True, read_messages = True)
+async def avatar(ctx, member: discord.Member = None):
+    if member is None:
+        member = ctx.message.author
+
+        em = discord.Embed(color = capycolor)
+        em.set_image(url = member.avatar_url)
+        em.set_footer(text = f"Avatar from {member}")
+
+        await ctx.channel.send(embed = em)
+
+    elif member is not None:
+        em = discord.Embed(color = capycolor)
+        em.set_image(url=member.avatar_url)
+        em.set_footer(text = f"Avatar from {member}")
+
+        await ctx.channel.send(embed = em)
 
 
 #help command for prefix use
@@ -421,12 +474,11 @@ async def help(ctx): # new help command
     em = discord.Embed(title = "Help", description = f"Use **{prefix}help <command>** to get more information on a command.", color = capycolor)
 
     em.add_field(name = "Translation", value = "**translate, treply, language, languages_list**")
-    em.add_field(name = "Capybara", value = "**capybara**")
-    em.add_field(name = "Bot commands", value = "**prefix, clear, ping, ban, unban**")
+    em.add_field(name = "Capybara and tools", value = "**capybara, avatar**")
+    em.add_field(name = "Bot commands", value = "**prefix, clear, ping, ban, unban, mute, unmute**")
     em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
 
     await ctx.send(embed = em)
-
 
 @help.command()
 @commands.cooldown(1, 5, type=commands.BucketType.channel)
@@ -570,6 +622,47 @@ async def unban(ctx):
 
     await ctx.send(embed = em)
 
+@help.command()
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
+@commands.bot_has_permissions(send_messages = True, read_messages = True)
+async def mute(ctx):
+    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
+    prefix = prefix[0].get("prefix")
+
+    em = discord.Embed(title = "mute", description = "Mutes a user.", color = capycolor)
+
+    em.add_field(name = "Syntax", value = f"**{prefix}mute '<user>' '<reason>'**")
+    em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
+
+    await ctx.send(embed = em)
+
+@help.command()
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
+@commands.bot_has_permissions(send_messages = True, read_messages = True)
+async def unmute(ctx):
+    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
+    prefix = prefix[0].get("prefix")
+
+    em = discord.Embed(title = "unmute", description = "Unmutes a user.", color = capycolor)
+
+    em.add_field(name = "Syntax", value = f"**{prefix}unmute '<user>'**")
+    em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
+
+    await ctx.send(embed = em)
+
+@help.command()
+@commands.cooldown(1, 5, type=commands.BucketType.channel)
+@commands.bot_has_permissions(send_messages = True, read_messages = True)
+async def avatar(ctx):
+    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
+    prefix = prefix[0].get("prefix")
+
+    em = discord.Embed(title = "avatar", description = "Gets avatar from user.", color = capycolor)
+
+    em.add_field(name = "Syntax", value = f"**{prefix}avatar '[user]'**")
+    em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
+
+    await ctx.send(embed = em)
 
 #regular slash commands
 @dislash.cooldown(1, 5, commands.BucketType.user)
@@ -717,7 +810,7 @@ async def clear(ctx, amount = 10): #deletes messages
         Option("reason", "Ban reason.", OptionType.STRING)
     ]
 )
-async def ban(inter: ContextMenuInteraction,  member:discord.Member = None, reason = "one good reason."):
+async def ban(inter: ContextMenuInteraction,  member:discord.Member = None, reason: str = "one good reason"):
     if member == None:
         await inter.respond(embed = discord.Embed(title = "You didn't select a user or user not found.", color = capycolor))
         return
@@ -731,8 +824,15 @@ async def ban(inter: ContextMenuInteraction,  member:discord.Member = None, reas
         return
 
     await inter.guild.ban(member, reason = reason)
-    await member.send(embed = discord.Embed(title = f"You have been banned from {inter.guild.name} for {reason}", color = capycolor))
-    await inter.respond(embed = discord.Embed(title = f"{member} is terminated.", color = capycolor))
+
+    em_m = discord.Embed(title = f"You have been banned from {inter.guild.name}", color = capycolor)
+    em_m.add_field(name = "Reason", value = f"**{reason}**")
+    await member.send(embed = em_m)
+
+    em = discord.Embed(title = f"{member.mention} is terminated.", color = capycolor)
+    em.add_field(name = "Reason", value = f"**{reason}**")
+    await inter.respond(embed = em)
+
 
 
 @dislash.cooldown(1, 5, commands.BucketType.user)
@@ -776,7 +876,7 @@ async def unban(inter: ContextMenuInteraction, member = None):
         Option("time", "Time you want to set the mute in format: 1s, 2m, 3h, 4d.", OptionType.STRING),
     ]
 )
-async def mute(ctx, member: discord.Member = None, reason: str = None, time = None):
+async def mute(ctx, member: discord.Member = None, reason: str = "one good reason", time = None):
     perms = discord.Permissions(speak = False, send_messages = False, read_message_history = False, read_messages = False)
     muted_role = discord.utils.get(ctx.guild.roles, name  = "Muted")
 
@@ -789,46 +889,37 @@ async def mute(ctx, member: discord.Member = None, reason: str = None, time = No
         await ctx.send(embed = discord.Embed(title = f"You need to enter the username as argument.", color = capycolor))
         
     elif  member is not None:
+        if time is not None:
+            args = time.lower()
+            matches = re.findall(time_regex, args)
+            time = 0
+            for v, k in matches:
+                time += time_dict[k]*float(v)
 
-        if reason is not None:
-            await member.add_roles(muted_role, reason = reason)
+            em_m = discord.Embed(title = f"You were muted from {ctx.guild.name}", color = capycolor)
+            em_m.add_field(name = "Reason", value = f"{reason}")
+            em_m.add_field(name = "Time", value = f"{round(time)}s")
 
-            if time is not None:
-                args = time.lower()
-                matches = re.findall(time_regex, args)
-                time = 0
-                for v, k in matches:
-                    time += time_dict[k]*float(v)
+            await member.send(embed = em_m)
 
-                await ctx.send(embed = discord.Embed(title = f"Muted **{member}** for **{reason}** for **{time}**s.", color = capycolor))
-                await member.send(embed = discord.Embed(title = f"You were muted for **{reason}** for **{time}**s.", color = capycolor))
+            em = discord.Embed(title = f"Muted {member}.", color = capycolor)
+            em.add_field(name = "Reason", value = f"{reason}")
+            em.add_field(name = "Time", value = f"{round(time)}s")
 
-                await asyncio.sleep(time)
-                await member.remove_roles(muted_role)
+            await ctx.send(embed = em)
 
-            if time is None:
-                await ctx.send(embed = discord.Embed(title = f"Muted **{member}** for **{reason}**,", color = capycolor))
-                await member.send(embed = discord.Embed(title = f"You were muted for **{reason}**.", color = capycolor))
+            await asyncio.sleep(time)
+            await member.remove_roles(muted_role)
 
-        if reason is None:
-            reason = "one good reason"
-            await member.add_roles(muted_role, reason = reason)
+        elif time is None:
+            em_m = discord.Embed(title = f"You have been muted on {ctx.guild.name}.", color = capycolor)
+            em_m.add_field(name = "Reason", value = f"{reason}")
 
-            if time is not None:
-                args = time.lower()
-                matches = re.findall(time_regex, args)
-                time = 0
-                for v, k in matches:
-                    time += time_dict[k]*float(v)
-                await ctx.send(embed = discord.Embed(title = f"Muted {member} for **{reason}** for **{time}**s.", color = capycolor))
-                await member.send(embed = discord.Embed(title = f"You were muted for **{reason}** for **{time}**s.", color = capycolor))
+            await member.send(embed = em_m)
 
-                await asyncio.sleep(time)
-                await member.remove_roles(muted_role)
-
-            if time is None:
-                await ctx.send(embed = discord.Embed(title = f"Muted {member} for **{reason}**.", color = capycolor))
-                await member.send(embed = discord.Embed(title = f"You were muted for **{reason}**,", color = capycolor))
+            em = discord.Embed(title = f"Muted {member}.", color = capycolor)
+            em.add_field(name = "Reason", value = f"{reason}")
+            await ctx.send(embed = em)
 
     elif muted_role in member.roles:
         await ctx.send(embed = discord.Embed(title = f"{member} is already muted.", color = capycolor))
@@ -844,18 +935,44 @@ async def mute(ctx, member: discord.Member = None, reason: str = None, time = No
 )
 async def unmute(ctx, member: discord.Member = None):
     muted_role = discord.utils.get(ctx.guild.roles, name  = "Muted")
+    
     if member is not None:
         if muted_role in member.roles:
             await member.remove_roles(muted_role)
             await ctx.send(embed = discord.Embed(title = f"{member} is unmuted.", color = capycolor))
 
-        if muted_role not in member.roles:
+        elif muted_role not in member.roles:
             await ctx.send(embed = discord.Embed(title = f"{member} is not muted.", color = capycolor))
 
 
     if member is None:
         await ctx.send(embed = discord.Embed(title = f"You need to enter the username as argument.", color = capycolor))
 
+
+@dislash.cooldown(1,5, commands.BucketType.user)
+@dislash.bot_has_permissions(send_messages = True, read_messages = True)
+@inter_client.slash_command(
+    description="Sends avatar of user",
+    options=[
+        Option("member", "User you want to get an avatar from.", OptionType.USER),
+    ]
+)
+async def avatar(inter, member: discord.Member = None):
+    if member is None:
+        member = inter.author
+
+        em = discord.Embed(color = capycolor)
+        em.set_image(url = member.avatar_url)
+        em.set_footer(text = f"Avatar from {member}")
+
+        await inter.respond(embed = em)
+
+    elif member is not None:
+        em = discord.Embed(color = capycolor)
+        em.set_image(url = member.avatar_url)
+        em.set_footer(text = f"Avatar from {member}")
+
+        await inter.respond(embed = em)
 
 #help slash command
 @dislash.cooldown(1, 5, commands.BucketType.guild)
@@ -878,6 +995,9 @@ async def unmute(ctx, member: discord.Member = None):
                 OptionChoice("ping", "ping"),
                 OptionChoice("ban", "ban"),
                 OptionChoice("unban", "unban"),
+                OptionChoice("mute", "mute"),
+                OptionChoice("unmute", "unmute"),
+                OptionChoice("avatar", "avatar"),
             ],
         )
     ]
@@ -890,8 +1010,8 @@ async def help(inter: SlashInteraction, command: str = None):
         em = discord.Embed(title = "Help", description = f"Use **{prefix}help <command>** to get more information on a command. ", color = capycolor)
 
         em.add_field(name = "Translation", value = "**translate, treply, language, languages_list**")
-        em.add_field(name = "Capybara", value = "**capybara**")
-        em.add_field(name = "Bot commands", value = "**prefix, clear, ping, ban, unban**")
+        em.add_field(name = "Capybara and tools", value = "**capybara, avatar**")
+        em.add_field(name = "Bot commands", value = "**prefix, clear, ping, ban, unban, mute, unmute**")
         em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
 
         await inter.respond(embed = em)
@@ -982,6 +1102,30 @@ async def help(inter: SlashInteraction, command: str = None):
 
         await inter.respond(embed = em)
 
+    elif command == "mute":
+        em = discord.Embed(title = "mute", description = "Mutes a user.", color = capycolor)
+        
+        em.add_field(name = "Syntax", value = f"**{prefix}mute '<user>' '<reason>'**")
+        em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
+
+        await inter.respond(embed = em)
+
+    elif command == "unmute":
+        em = discord.Embed(title = "unmute", description = "Unmutes a user.", color = capycolor)
+        
+        em.add_field(name = "Syntax", value = f"**{prefix}unmute '<user>'**")
+        em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
+        
+        await inter.respond(embed = em)
+
+    elif command == "avatar":
+        em = discord.Embed(title = "avatar", description = "Gets avatar from user.", color = capycolor)
+        
+        em.add_field(name = "Syntax", value = f"**{prefix}avatar '[user]'**")
+        em.add_field(name = "Slash", value = "You can use slash alternative of that command.")
+
+        await inter.respond(embed = em)
+    
     else:
         await inter.respond(embed = discord.Embed(title = f"There's no {prefix}help for this command.", color = capycolor))
 
