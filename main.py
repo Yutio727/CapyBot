@@ -10,21 +10,31 @@ from decouple import config
 import googletrans
 import asyncpg
 import asyncio
+import mysql.connector
 from humanfriendly import parse_timespan
 from datetime import timedelta
 
 #getting variables
 CAPY_IMAGES = config("CAPY_IMAGES") 
 TOKEN = config("TOKEN")
-PATH_IMAGEDATABASE = config("PATH_IMAGEDATABASE") 
-PATH_PREFIX = config("PATH_PREFIX")
-CAPY_BASE = config("DATABASE")
+HOST = config("HOST")
+USER = config("USER")
+PASSWORD = config("PASSWORD")
+DATABASE = config("DATABASE")
 
 translator = googletrans.Translator() #googletrans lib
 
 intents = discord.Intents.default() #discord intents
 intents.members = True #doesn't work without it
 intents.message_content = True #doesn't work without it
+
+capydb = mysql.connector.connect( #database connection
+  host = HOST,
+  user = USER,
+  password = PASSWORD,
+  database = DATABASE
+)
+
 
 
 capybara_words = [
@@ -53,36 +63,46 @@ message_on_cooldown = [] #used in on_message
 lang_list = [] #used in {prefix}help languages_list
 
 DEFAULT_PREFIX = "!"
-DEFAULT_TOGGLE = "On"
+DEFAULT_TOGGLE = "1"
 
 
 async def get_prefix(bot, message): #getting prefix from database
     if not message.guild:
         return commands.when_mentioned_or(DEFAULT_PREFIX)(bot,message)
 
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", message.guild.id)
-    toggle = await bot.db.fetch("SELECT toggle FROM capypics WHERE guild_id = $1", message.guild.id)
-    
-    if len(prefix) == 0:
-        await bot.db.execute("INSERT INTO guilds(guild_id, prefix) VALUES ($1, $2)", message.guild.id, DEFAULT_PREFIX)
+    cursor = capydb.cursor() #openning the cursor to do something with db
+
+    prefix = cursor.execute(f"SELECT * FROM guilds WHERE guild_id = {message.guild.id}") #executing sql request
+    data = cursor.fetchone() #fetching that request
+
+    if data == None:
+        
+        cursor.execute("INSERT INTO guilds(guild_id, prefix) VALUES (%s, %s)", [message.guild.id, DEFAULT_PREFIX]) #cexecuting sql request
         prefix = DEFAULT_PREFIX
+        capydb.commit() #commiting the change to db
     else:
-        prefix = prefix[0].get("prefix")
+        prefix = data[1]
+        capydb.commit() #commiting the change to db
 
 
-    if len(toggle) == 0:
-        await bot.db.execute("INSERT INTO capypics(guild_id, toggle) VALUES ($1, $2)", message.guild.id, DEFAULT_TOGGLE)
+    toggle = cursor.execute("SELECT * FROM capypics WHERE guild_id = (%s)", [message.guild.id])
+    data1 = cursor.fetchone()
+
+    if data1 == None:
+
+        cursor.execute("INSERT INTO capypics(guild_id, toggle) VALUES (%s, %s)", [message.guild.id, DEFAULT_TOGGLE])
         toggle = DEFAULT_TOGGLE
+        capydb.commit()
     else:
-        toggle = toggle[0].get("toggle")
-    #   print(toggle)
+        toggle = data1[1]
+        capydb.commit()
 
+    cursor.close() #closing the cursor (important)
     return commands.when_mentioned_or(prefix)(bot, message)
 
 
-async def create_db_pool(): #connecting to database
-    bot.db = await asyncpg.create_pool(CAPY_BASE) 
-    print("Connected to database.".format(bot))
+# async def create_db_pool(): #connecting to database
+#     print("Connected to database.".format(bot))
 
 
 #bot command
@@ -92,8 +112,13 @@ bot = commands.Bot(command_prefix = get_prefix, intents=intents, help_command = 
 
 @bot.event
 async def on_ready(): #when bot is ready
+    if (capydb.is_connected()):
+        print("Connected to a database.")
+    else:
+        print("Connection to database is not established.")
+
     print("{0.user} is fully operational.".format(bot)) #when the bot is loaded
-    print("Please wait atleast 1 minute before using slash commands if test_guilds are not set in ctx_client.")
+    print("Please wait atleast 1 minute before using slash commands if test_guilds are not set in debug_guilds.")
     # for guild in bot.guilds:
     #     print(guild.id)
 
@@ -196,17 +221,20 @@ async def on_application_command_error(ctx, error): #slash commands handler
 @commands.bot_has_permissions(change_nickname = True, send_messages = True, read_messages = True)
 @commands.cooldown(1, 5, type=commands.BucketType.guild)
 async def prefix(ctx, new_prefix = ""):#changes the prefix
+    cursor = capydb.cursor()
     if len(new_prefix) > 0 and len(new_prefix) <= 3:
-        await bot.db.execute("UPDATE guilds SET prefix = $1 WHERE guild_id = $2", new_prefix, ctx.guild.id)
-        await ctx.respond(embed = discord.Embed(title = f"Prefix was changed to: {new_prefix}", color = capycolor))
+        cursor.execute(f"UPDATE guilds SET prefix = '{new_prefix}' WHERE guild_id = {ctx.guild.id}")
+
+        await ctx.send(embed = discord.Embed(title = f"Prefix was changed to: {new_prefix}", color = capycolor))
         await ctx.guild.me.edit(nick = f"CapyBot [{new_prefix}]") #changes nickname with current guild prefix
+        capydb.commit()
 
     elif len(new_prefix) == 0:
         await ctx.send(embed = discord.Embed(title = "You didn't enter the prefix", color = capycolor))
 
     else:
         await ctx.send(embed = discord.Embed(title = "Your prefix is way too long, try shorter one.", color = capycolor))
-
+    cursor.close()
 
 
 
@@ -215,16 +243,21 @@ async def prefix(ctx, new_prefix = ""):#changes the prefix
 @commands.bot_has_permissions(send_messages = True, read_messages = True)
 @commands.cooldown(1, 5, type=commands.BucketType.channel)
 async def capybara(ctx):
-    toggle = await bot.db.fetch("SELECT toggle FROM capypics WHERE guild_id = $1", ctx.guild.id)
-    toggle = toggle[0].get("toggle")
+    cursor = capydb.cursor()
+    toggle = cursor.execute("SELECT * FROM capypics WHERE guild_id = (%s)", [ctx.guild.id])
+    data = cursor.fetchone()
+    toggle = str(data[1])
 
-    if  toggle == "On":
-        await bot.db.execute("UPDATE capypics SET toggle = $1 WHERE guild_id = $2", "Off", ctx.guild.id)
+    if  toggle == "1":
+        cursor.execute(f"UPDATE capypics SET toggle = '0' WHERE guild_id = {ctx.guild.id}")
         await ctx.channel.send(embed = discord.Embed(title = "Capybara pics are off.", color = capycolor))
+        capydb.commit()
 
-    if toggle == "Off":
-        await bot.db.execute("UPDATE capypics SET toggle = $1 WHERE guild_id = $2", "On", ctx.guild.id)
+    if toggle == "0":
+        cursor.execute(f"UPDATE capypics SET toggle = '1' WHERE guild_id = {ctx.guild.id}")
         await ctx.channel.send(embed = discord.Embed(title = "Capybara pics are on.", color = capycolor))
+        capydb.commit()
+    cursor.close()
 
 @bot.command()
 @commands.cooldown(1, 5, type=commands.BucketType.user)
@@ -520,8 +553,11 @@ async def kick(ctx,  member:discord.Member = None, *, reason: str = "one good re
 @commands.cooldown(1, 5, type=commands.BucketType.channel)
 @commands.bot_has_permissions(send_messages = True, read_messages = True)
 async def help(ctx): # new help command
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
+    cursor = capydb.cursor()
+    prefix = cursor.execute(f"SELECT * FROM guilds WHERE guild_id = {ctx.guild.id}")
+    data = cursor.fetchone()
+    prefix = data[1]
+    cursor.close()
 
     em = discord.Embed(title = "Help", description = f"Use **{prefix}help <command>** to get more information on a command.", color = capycolor)
 
@@ -536,8 +572,11 @@ async def help(ctx): # new help command
 @commands.cooldown(1, 5, type=commands.BucketType.channel)
 @commands.bot_has_permissions(send_messages = True, read_messages = True)
 async def translate(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
+    cursor = capydb.cursor()
+    prefix = cursor.execute(f"SELECT * FROM guilds WHERE guild_id = {ctx.guild.id}")
+    data = cursor.fetchone()
+    prefix = data[1]
+    cursor.close()
 
     em = discord.Embed(title = "translate", description = "Translates a word or a sentence.", color = capycolor)
 
@@ -551,8 +590,11 @@ async def translate(ctx):
 @commands.cooldown(1, 5, type=commands.BucketType.channel)
 @commands.bot_has_permissions(send_messages = True, read_messages = True)
 async def language(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
+    cursor = capydb.cursor()
+    prefix = cursor.execute(f"SELECT * FROM guilds WHERE guild_id = {ctx.guild.id}")
+    data = cursor.fetchone()
+    prefix = data[1]
+    cursor.close()
 
     em = discord.Embed(title = "languages", description = "Gives you a code to language or a language to a code.", color = capycolor)
 
@@ -578,8 +620,11 @@ async def languages_list(ctx):
 @commands.cooldown(1, 5, type=commands.BucketType.channel)
 @commands.bot_has_permissions(send_messages = True, read_messages = True)
 async def treply(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
+    cursor = capydb.cursor()
+    prefix = cursor.execute(f"SELECT * FROM guilds WHERE guild_id = {ctx.guild.id}")
+    data = cursor.fetchone()
+    prefix = data[1]
+    cursor.close()
 
     em = discord.Embed(title = "treply", description = "Translates message you replyed to.", color = capycolor)
 
@@ -594,8 +639,11 @@ async def treply(ctx):
 @commands.cooldown(1, 5, type=commands.BucketType.channel)
 @commands.bot_has_permissions(send_messages = True, read_messages = True)
 async def capybara(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
+    cursor = capydb.cursor()
+    prefix = cursor.execute(f"SELECT * FROM guilds WHERE guild_id = {ctx.guild.id}")
+    data = cursor.fetchone()
+    prefix = data[1]
+    cursor.close()
 
     em = discord.Embed(title = "capybara", description = "Toogles On and Off on your capybara pics dispenser.", color = capycolor)
 
@@ -608,8 +656,11 @@ async def capybara(ctx):
 @commands.cooldown(1, 5, type=commands.BucketType.channel)
 @commands.bot_has_permissions(send_messages = True, read_messages = True)
 async def prefix(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
+    cursor = capydb.cursor()
+    prefix = cursor.execute(f"SELECT * FROM guilds WHERE guild_id = {ctx.guild.id}")
+    data = cursor.fetchone()
+    prefix = data[1]
+    cursor.close()
 
     em = discord.Embed(title = "prefix", description = "Changes your server prefix.", color = capycolor)
 
@@ -622,8 +673,11 @@ async def prefix(ctx):
 @commands.cooldown(1, 5, type=commands.BucketType.channel)
 @commands.bot_has_permissions(send_messages = True, read_messages = True)
 async def clear(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
+    cursor = capydb.cursor()
+    prefix = cursor.execute(f"SELECT * FROM guilds WHERE guild_id = {ctx.guild.id}")
+    data = cursor.fetchone()
+    prefix = data[1]
+    cursor.close()
 
     em = discord.Embed(title = "clear", description = "Deletes messages. Standart amount is **10**, but you can set up to **50**.", color = capycolor)
 
@@ -636,8 +690,11 @@ async def clear(ctx):
 @commands.cooldown(1, 5, type=commands.BucketType.channel)
 @commands.bot_has_permissions(send_messages = True, read_messages = True)
 async def ping(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
+    cursor = capydb.cursor()
+    prefix = cursor.execute(f"SELECT * FROM guilds WHERE guild_id = {ctx.guild.id}")
+    data = cursor.fetchone()
+    prefix = data[1]
+    cursor.close()
 
     em = discord.Embed(title = "ping", description = "Pings a user and deletes the messages after, making it a ghost ping.", color = capycolor)
 
@@ -650,8 +707,11 @@ async def ping(ctx):
 @commands.cooldown(1, 5, type=commands.BucketType.channel)
 @commands.bot_has_permissions(send_messages = True, read_messages = True)
 async def ban(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
+    cursor = capydb.cursor()
+    prefix = cursor.execute(f"SELECT * FROM guilds WHERE guild_id = {ctx.guild.id}")
+    data = cursor.fetchone()
+    prefix = data[1]
+    cursor.close()
 
     em = discord.Embed(title = "ban", description = "Bans a user.", color = capycolor)
 
@@ -664,8 +724,11 @@ async def ban(ctx):
 @commands.cooldown(1, 5, type=commands.BucketType.channel)
 @commands.bot_has_permissions(send_messages = True, read_messages = True)
 async def unban(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
+    cursor = capydb.cursor()
+    prefix = cursor.execute(f"SELECT * FROM guilds WHERE guild_id = {ctx.guild.id}")
+    data = cursor.fetchone()
+    prefix = data[1]
+    cursor.close()
 
     em = discord.Embed(title = "unban", description = "Unbans a user.", color = capycolor)
 
@@ -678,8 +741,11 @@ async def unban(ctx):
 @commands.cooldown(1, 5, type=commands.BucketType.channel)
 @commands.bot_has_permissions(send_messages = True, read_messages = True)
 async def mute(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
+    cursor = capydb.cursor()
+    prefix = cursor.execute(f"SELECT * FROM guilds WHERE guild_id = {ctx.guild.id}")
+    data = cursor.fetchone()
+    prefix = data[1]
+    cursor.close()
 
     em = discord.Embed(title = "mute", description = "Mutes a user.", color = capycolor)
 
@@ -692,8 +758,11 @@ async def mute(ctx):
 @commands.cooldown(1, 5, type=commands.BucketType.channel)
 @commands.bot_has_permissions(send_messages = True, read_messages = True)
 async def unmute(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
+    cursor = capydb.cursor()
+    prefix = cursor.execute(f"SELECT * FROM guilds WHERE guild_id = {ctx.guild.id}")
+    data = cursor.fetchone()
+    prefix = data[1]
+    cursor.close()
 
     em = discord.Embed(title = "unmute", description = "Unmutes a user.", color = capycolor)
 
@@ -706,8 +775,11 @@ async def unmute(ctx):
 @commands.cooldown(1, 5, type=commands.BucketType.channel)
 @commands.bot_has_permissions(send_messages = True, read_messages = True)
 async def avatar(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
+    cursor = capydb.cursor()
+    prefix = cursor.execute(f"SELECT * FROM guilds WHERE guild_id = {ctx.guild.id}")
+    data = cursor.fetchone()
+    prefix = data[1]
+    cursor.close()
 
     em = discord.Embed(title = "avatar", description = "Gets avatar from user.", color = capycolor)
 
@@ -720,8 +792,11 @@ async def avatar(ctx):
 @commands.cooldown(1, 5, type=commands.BucketType.channel)
 @commands.bot_has_permissions(send_messages = True, read_messages = True)
 async def timeout(ctx):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
+    cursor = capydb.cursor()
+    prefix = cursor.execute(f"SELECT * FROM guilds WHERE guild_id = {ctx.guild.id}")
+    data = cursor.fetchone()
+    prefix = data[1]
+    cursor.close()
 
     em = discord.Embed(title = "avatar", description = "Gets avatar from user.", color = capycolor)
     em.add_field(name = "Syntax", value = f"**{prefix}timeout '[user]' '[time]' '<reason>'**")
@@ -733,6 +808,11 @@ async def timeout(ctx):
 @commands.cooldown(1, 5, type=commands.BucketType.channel)
 @commands.bot_has_permissions(send_messages = True, read_messages = True)
 async def kick(ctx):
+    cursor = capydb.cursor()
+    prefix = cursor.execute(f"SELECT * FROM guilds WHERE guild_id = {ctx.guild.id}")
+    data = cursor.fetchone()
+    prefix = data[1]
+    cursor.close()
     em = discord.Embed(title = "kick", description = "Kicks the user from the server.", color = capycolor)
 
     em.add_field(name = "Syntax", value = f"**{prefix}kick '[user]'**")
@@ -755,16 +835,21 @@ async def kick(ctx):
 @commands.has_permissions(administrator = True)
 @commands.bot_has_guild_permissions(change_nickname = True, send_messages = True, read_messages = True)
 async def prefix(ctx, new_prefix:str = ""):#changes the prefix
+    cursor = capydb.cursor()
     if len(new_prefix) > 0 and len(new_prefix) <= 3:
-        await bot.db.execute("UPDATE guilds SET prefix = $1 WHERE guild_id = $2", new_prefix, ctx.guild.id)
+        cursor.execute(f"UPDATE guilds SET prefix = '{new_prefix}' WHERE guild_id = {ctx.guild.id}")
+
         await ctx.respond(embed = discord.Embed(title = f"Prefix was changed to: {new_prefix}", color = capycolor))
-        await ctx.guild.me.edit(nick = f"CapyBot [{new_prefix}]")
+        await ctx.guild.me.edit(nick = f"CapyBot [{new_prefix}]") #changes nickname with current guild prefix
+        capydb.commit()
 
     elif len(new_prefix) == 0 or new_prefix is None:
         await ctx.respond(embed = discord.Embed(title = "You didn't enter the prefix", color = capycolor), delete_after = 5)
 
     else:
         await ctx.respond(embed = discord.Embed(title = "Your prefix is way too long, try shorter one.", color = capycolor), delete_after = 5)
+    cursor.close()
+
 
 
 @bot.slash_command(name = "capybara", description="Toogles the capybara pics sending.")
@@ -772,16 +857,21 @@ async def prefix(ctx, new_prefix:str = ""):#changes the prefix
 @commands.has_permissions(administrator = True)
 @commands.bot_has_guild_permissions(send_messages = True, read_messages = True)
 async def capybara(ctx):
-    toggle = await bot.db.fetch("SELECT toggle FROM capypics     WHERE guild_id = $1", ctx.guild.id)
-    toggle = toggle[0].get("toggle")
+    cursor = capydb.cursor()
+    toggle = cursor.execute("SELECT * FROM capypics WHERE guild_id = (%s)", [ctx.guild.id])
+    data = cursor.fetchone()
+    toggle = str(data[1])
 
-    if  toggle == "On":
-        await bot.db.execute("UPDATE capypics SET toggle = $1 WHERE guild_id = $2", "Off", ctx.guild.id)
+    if  toggle == "1":
+        cursor.execute(f"UPDATE capypics SET toggle = '0' WHERE guild_id = {ctx.guild.id}")
         await ctx.respond(embed = discord.Embed(title = "Capybara pics are off.", color = capycolor))
+        capydb.commit()
 
-    if toggle == "Off":
-        await bot.db.execute("UPDATE capypics SET toggle = $1 WHERE guild_id = $2", "On", ctx.guild.id)
+    if toggle == "0":
+        cursor.execute(f"UPDATE capypics SET toggle = '1' WHERE guild_id = {ctx.guild.id}")
         await ctx.respond(embed = discord.Embed(title = "Capybara pics are on.", color = capycolor))
+        capydb.commit()
+    cursor.close()
 
 @bot.slash_command(name = "translate", description="Translates a word or a sentence.")
 @option(
@@ -1225,8 +1315,11 @@ async def kick(ctx,  user:discord.Member = None, *, reason: str = "one good reas
 @commands.cooldown(1, 5, commands.BucketType.guild)
 @commands.bot_has_permissions(send_messages = True, read_messages = True)
 async def help(ctx, command: str = None):
-    prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", ctx.guild.id)
-    prefix = prefix[0].get("prefix")
+    cursor = capydb.cursor()
+    prefix = cursor.execute(f"SELECT * FROM guilds WHERE guild_id = {ctx.guild.id}")
+    data = cursor.fetchone()
+    prefix = data[1]
+    cursor.close()
 
     if command == None:
         em = discord.Embed(title = "Help", description = f"Use **{prefix}help <command>** to get more information on a command. ", color = capycolor)
@@ -1380,35 +1473,43 @@ async def on_message(message):
             any(word.upper() in msg for word in capybara_words) or \
             any(word in msg for word in capybara_words)): #searches for words in lower, upper and Ca... - like words
 
-            prefix = await bot.db.fetch("SELECT prefix FROM guilds WHERE guild_id = $1", message.guild.id)
-            prefix = prefix[0].get("prefix")
+            cursor = capydb.cursor()
 
-            toggle = await bot.db.fetch("SELECT toggle FROM capypics WHERE guild_id = $1", message.guild.id)
-            toggle = toggle[0].get("toggle")
-        
-            if not message.guild.id in message_on_cooldown and toggle == "On" and not msg.startswith(prefix):
-                os.chdir(CAPY_IMAGES) #changes main directory, doesn't work without it
-                image = random.choice(os.listdir(PATH_IMAGEDATABASE)) #gets random image of capybara from the directory
+            prefix = cursor.execute(f"SELECT * FROM guilds WHERE guild_id = {message.guild.id}")
+            data = cursor.fetchone()
+            prefix = data[1]
 
-                with open(image, 'rb') as f: # opens it
-                    picture = discord.File(f)
-                    await message.channel.send(file=picture) #sends it as a picture
+            if  msg.startswith(prefix):
+                return
+            else:
+                toggle = cursor.execute("SELECT * FROM capypics WHERE guild_id = (%s)", [message.guild.id])
+                data1 = cursor.fetchone()
+                toggle = str(data1[1])
 
-                message_on_cooldown.append(message.guild.id) #add guild to cooldown
-                await asyncio.sleep(5) # time in seconds
-                message_on_cooldown.remove(message.guild.id) #remove guild from cooldown
+                if not message.guild.id in message_on_cooldown and toggle == "1":
+                    os.chdir(CAPY_IMAGES) #changes main directory, doesn't work without it
+                    image = random.choice(os.listdir(CAPY_IMAGES)) #gets random image of capybara from the directory
 
-            if message.guild.id in message_on_cooldown:
-                em = discord.Embed(title = "Your server is on cooldown.", color = capycolor)
-                await message.channel.send(embed =  em, delete_after = 3)
+                    with open(image, 'rb') as f: # opens it
+                        picture = discord.File(f)
+                        await message.channel.send(file=picture) #sends it as a picture
 
-            if toggle == "Off" and not message.guild.id in message_on_cooldown:
-                em = discord.Embed(title = "Your capypics are off.", color = capycolor)
-                await message.channel.send(embed = em, delete_after = 3)
-                
-                message_on_cooldown.append(message.guild.id) #add guild to cooldown
-                await asyncio.sleep(30) # time in seconds
-                message_on_cooldown.remove(message.guild.id) #remove guild from cooldown
+                    message_on_cooldown.append(message.guild.id) #add guild to cooldown
+                    await asyncio.sleep(5) # time in seconds
+                    message_on_cooldown.remove(message.guild.id) #remove guild from cooldown
 
-bot.loop.run_until_complete(create_db_pool()) #database requests in loop
+                if message.guild.id in message_on_cooldown:
+                    em = discord.Embed(title = "Your server is on cooldown.", color = capycolor)
+                    await message.channel.send(embed =  em, delete_after = 3)
+
+                if toggle == "0" and not message.guild.id in message_on_cooldown:
+                    em = discord.Embed(title = "Your capypics are off.", color = capycolor)
+                    await message.channel.send(embed = em, delete_after = 3)
+                    
+                    message_on_cooldown.append(message.guild.id) #add guild to cooldown
+                    await asyncio.sleep(30) # time in seconds
+                    message_on_cooldown.remove(message.guild.id) #remove guild from cooldown
+
+            cursor.close()
+
 bot.run(TOKEN)
